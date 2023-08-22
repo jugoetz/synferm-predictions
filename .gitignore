@@ -1,0 +1,27 @@
+.ipynb_checkpoints/
+
+config/*
+!config/config.yaml
+!config/hparam_bounds.yaml
+
+data/*
+!data/example_split
+!data/example_dataset.csv
+
+lightning_logs/
+outputs/
+logs/
+checkpoints/
+src/wandb/
+wandb/
+*__pycache__*
+
+# Pycharm
+.idea/
+.run/
+
+# nq log files
+,*
+
+# backup
+*.old
