@@ -3,6 +3,9 @@ import random
 from typing import Optional
 
 
+project_name = "synferm-predictions"
+
+
 def generate_run_id():
     """
     Return an ID consisting of the current datetime and a 6-digit random part.

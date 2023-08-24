@@ -8,7 +8,7 @@ from src.model.callbacks import LogMetricsCallback, BestValLossEpochCallback
 from src.model.classifier import load_model
 from src.model.sklearnmodels import load_sklearn_model
 from src.util.definitions import LOG_DIR, CKPT_DIR
-from src.util.logging import generate_run_id, concatenate_to_dict_keys
+from src.util.logging import generate_run_id, concatenate_to_dict_keys, project_name
 
 
 def train(
@@ -73,7 +73,7 @@ def train(
 
     wandb.init(
         reinit=True,
-        project="slap-gnn",
+        project=project_name,
         name=run_id,
         group=run_group,
         config=hparams,
