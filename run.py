@@ -102,6 +102,13 @@ if __name__ == "__main__":
         "is present in the split directory.",
     )
 
+    train_parser.add_argument(
+        "--task",
+        type=str,
+        choices=["binary", "multiclass", "multilabel"],
+        help="Type of classification task",
+    )
+
     # predict parser
     predict_parser = subparsers.add_parser("predict", parents=[parent_parser])
     predict_parser.add_argument(

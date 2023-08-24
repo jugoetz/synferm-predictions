@@ -54,11 +54,11 @@ class Classifier(pl.LightningModule):
         self.decoder = self.init_decoder()
         self.metrics = torch.nn.ModuleDict(
             {
-                "accuracy": tm.Accuracy(),
-                "AUROC": tm.AUROC(),
-                "precision": tm.Precision(),
-                "recall": tm.Recall(),
-                "f1": tm.F1Score(),
+                "accuracy": tm.Accuracy(task=self.hparams["training"]["task"]),
+                "AUROC": tm.AUROC(task=self.hparams["training"]["task"]),
+                "precision": tm.Precision(task=self.hparams["training"]["task"]),
+                "recall": tm.Recall(task=self.hparams["training"]["task"]),
+                "f1": tm.F1Score(task=self.hparams["training"]["task"]),
             }
         )
 
