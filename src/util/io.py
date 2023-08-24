@@ -21,6 +21,7 @@ def get_hparam_bounds(path):
 def walk_split_directory(directory: pathlib.Path):
     """
     Walk a directory containing csv files to identify all split files therein.
+    We expect the naming convention `fold<fold_nr>_<train/val/test>.csv`.
 
     Args:
         directory (pathlib.Path): Directory to walk.
