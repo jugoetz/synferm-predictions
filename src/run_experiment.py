@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 
-from src.data.dataloader import SLAPDataset, collate_fn
+from src.data.dataloader import SynFermDataset, collate_fn
 from src.util.definitions import LOG_DIR
 from src.util.io import walk_split_directory
 from src.util.logging import generate_run_id
@@ -15,12 +15,12 @@ def run_training(args, hparams):
     Handles training and hyperparameter optimization.
     """
     # load data
-    data = SLAPDataset(
+    data = SynFermDataset(
         name=args.data_path.name,
         raw_dir=args.data_path.parent,
         reaction=hparams["encoder"]["reaction"],
-        smiles_columns=(args.smiles_column,),
-        label_column=args.label_column,
+        smiles_columns=args.smiles_columns,
+        label_columns=args.label_columns,
         graph_type=hparams["encoder"]["graph_type"],
         global_features=hparams["decoder"]["global_features"],
         global_features_file=hparams["decoder"]["global_features_file"],
@@ -76,7 +76,7 @@ def run_training(args, hparams):
         )
 
     # run cross-validation with preconfigured or optimized hparams
-    if job_type is "hparam_optimization":
+    if job_type == "hparam_optimization":
         job_type = "hparam_best"
     else:
         job_type = "training"
@@ -124,12 +124,12 @@ def run_prediction(args, hparams):
     """
 
     # load data
-    data = SLAPDataset(
+    data = SynFermDataset(
         name=args.data_path.name,
         raw_dir=args.data_path.parent,
         reaction=hparams["encoder"]["reaction"],
-        smiles_columns=(args.smiles_column,),
-        label_column=None,
+        smiles_columns=args.smiles_columns,
+        label_columns=None,
         graph_type=hparams["encoder"]["graph_type"],
         global_features=hparams["decoder"]["global_features"],
         featurizers=hparams["encoder"]["featurizers"],

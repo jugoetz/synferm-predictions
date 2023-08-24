@@ -41,7 +41,7 @@ def collate_fn(
     else:
         batched_global_features = torch.tensor(global_features, dtype=torch.float32)
 
-    if labels[0] is None:
+    if labels[0][0] is None:
         batched_labels = None
     else:
         batched_labels = torch.tensor(labels)
@@ -49,12 +49,12 @@ def collate_fn(
     return batched_graphs, batched_global_features, batched_labels
 
 
-class SLAPDataset(DGLDataset):
+class SynFermDataset(DGLDataset):
     """
-    SLAP Dataset
+    Synthetic Fermentation Dataset
 
-    Can load a set of data points containing either a reactionSMILES or a SMILES of a single molecule and one
-    column containing labels.
+    Can load a set of data points containing either a reactionSMILES or a SMILES of a single molecule and one or more
+    columns containing labels.
 
     After processing, the data set will contain a featurized graph encoding of the molecule or reaction.
     If reaction=True, the encoding will be a condensed graph of reaction (CGR).
@@ -72,7 +72,7 @@ class SLAPDataset(DGLDataset):
         graph_type: str = "bond_edges",
         featurizers: str = "dgllife",
         smiles_columns: tuple = ("SMILES",),
-        label_column: Optional[str] = "label",
+        label_columns: Optional[Tuple[str]] = ("label",),
         save_dir: Union[str, os.PathLike] = None,
         force_reload=False,
         verbose=True,
@@ -99,7 +99,7 @@ class SLAPDataset(DGLDataset):
             featurizers: Featurizers to use for atom and bond featurization. Options: {"dgllife", "chemprop", "custom"}.
                 Default "dgllife".
             smiles_columns: Headers of columns in data file that contain SMILES strings
-            label_column: Header of the column in data file that contains the labels
+            label_columns: Header of the columns in data file that contain the labels
             save_dir: Directory to save the processed data set. If None, `raw_dir` is used. Default None.
             force_reload: Reload data set, ignoring cache. Default False.
             verbose: Whether to provide verbose output
@@ -109,7 +109,7 @@ class SLAPDataset(DGLDataset):
             global_features = []
 
         self.reaction = reaction
-        self.label_column = label_column
+        self.label_columns = label_columns
         self.smiles_columns = smiles_columns
         self.graph_type = graph_type  # whether to form BE- or BN-graph
         self.global_features = (
@@ -132,12 +132,12 @@ class SLAPDataset(DGLDataset):
             self.atom_featurizer = ChempropAtomFeaturizer(atom_data_field="x")
             self.bond_featurizer = ChempropBondFeaturizer(bond_data_field="e")
         elif featurizers == "custom":
-            self.atom_featurizer = SLAPAtomFeaturizer(atom_data_field="x")
-            self.bond_featurizer = SLAPBondFeaturizer(bond_data_field="e")
+            self.atom_featurizer = SLAPAtomFeaturizer(atom_data_field="x")  # TODO adapt for SF
+            self.bond_featurizer = SLAPBondFeaturizer(bond_data_field="e")  # TODO adapt for SF
         else:
-            raise ValueError("Unexpected value for 'featurizers'")
+            raise ValueError(f"Unexpected value '{featurizers}' for 'featurizers'")
 
-        # global featurizer(s)
+        # global featurizers
         if "RDKit" in global_features:
             self.global_featurizers.append(RDKit2DGlobalFeaturizer(normalize=True))
         if "FP" in global_features:
@@ -151,7 +151,7 @@ class SLAPDataset(DGLDataset):
                 FromFileFeaturizer(filename=global_features_file)
             )
 
-        super(SLAPDataset, self).__init__(
+        super(SynFermDataset, self).__init__(
             name=name,
             url=url,
             raw_dir=raw_dir,
@@ -216,7 +216,7 @@ class SLAPDataset(DGLDataset):
 
         if len(self.global_featurizers) > 0:
             if self.reaction:
-                # if it is a reaction, we featurize for both reactants, then concatenate
+                # if it is a reaction, we featurize for all reactants, then concatenate
                 for global_featurizer in self.global_featurizers:
                     if isinstance(global_featurizer, OneHotEncoder):
                         # for OHE, we need to set up the encoder with the list(s) of smiles it should encode
@@ -229,12 +229,11 @@ class SLAPDataset(DGLDataset):
                             # sanity check: the OneHotEncoder should not have been initialized before
                             assert global_featurizer.n_dimensions == 0
                             # else, we need to set up the encoder with the list(s) of smiles it should encode
-                            smiles_reactant1 = [s.split(".")[0] for s in smiles]
-                            smiles_reactant2 = [
-                                s.split(">>")[0].split(".")[1] for s in smiles
-                            ]
-                            global_featurizer.add_dimension(smiles_reactant1)
-                            global_featurizer.add_dimension(smiles_reactant2)
+                            reactants = [[*s.split(">>")[0].split(".")] for s in smiles]
+
+                            for reac in reactants:
+                                global_featurizer.add_dimension(reac)
+
                             # and save the state of the encoder, to use it later for inference
                             self.global_featurizer_state_dict_path = LOG_DIR / (
                                 "OHE_state_dict_"
@@ -244,7 +243,7 @@ class SLAPDataset(DGLDataset):
                             global_featurizer.save_state_dict(
                                 self.global_featurizer_state_dict_path
                             )
-
+                    # calculate global features for all reactants and concatenate
                     self.global_features = [
                         np.concatenate(i)
                         for i in zip(
@@ -286,32 +285,32 @@ class SLAPDataset(DGLDataset):
                         )
                     ]
 
-        if self.label_column is not None and csv_data is not None:
-            self.labels = csv_data[self.label_column].values.tolist()
+        if self.label_columns is not None and csv_data is not None:
+            self.labels = csv_data[self.label_columns].values.tolist()
         else:
             # allow having no labels, e.g. for inference
-            self.labels = [None for _ in smiles]
+            self.labels = [[None] for _ in smiles]
 
         # little safety net
         assert len(self.graphs) == len(self.labels) == len(self.global_features)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Tuple[dgl.DGLGraph, List[np.ndarray], List[list]]:
         """Get graph and label by index
 
         Args:
             idx (int): Item index
 
         Returns:
-            (dgl.DGLGraph, Tensor)
+            (dgl.DGLGraph, list, list)
         """
         return self.graphs[idx], self.global_features[idx], self.labels[idx]
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Number of graphs in the dataset"""
         return len(self.graphs)
 
     @property
-    def atom_feature_size(self):
+    def atom_feature_size(self) -> int:
         n_atom_features = self.atom_featurizer.feat_size()
         if self.reaction:
             return 2 * n_atom_features  # CGR has 2 x features
@@ -319,7 +318,7 @@ class SLAPDataset(DGLDataset):
             return n_atom_features
 
     @property
-    def bond_feature_size(self):
+    def bond_feature_size(self) -> int:
         n_bond_features = self.bond_featurizer.feat_size()
         if self.reaction:
             return 2 * n_bond_features  # CGR has 2 x features
@@ -327,30 +326,32 @@ class SLAPDataset(DGLDataset):
             return n_bond_features
 
     @property
-    def feature_size(self):
+    def feature_size(self) -> int:
         return self.atom_feature_size + self.bond_feature_size
 
     @property
-    def global_feature_size(self):
+    def global_feature_size(self) -> int:
         n_global_features = 0
         for global_featurizer in self.global_featurizers:
             if self.reaction and not isinstance(global_featurizer, OneHotEncoder):
-                # for 2 reactants we have 2 x features (except for the OHE which always encorporates all inputs in feat size)
-                n_global_features += 2 * global_featurizer.feat_size
+                # for 3 reactants we have 3 x features (except for the OHE which always encorporates all inputs in feat size)
+                n_global_features += 3 * global_featurizer.feat_size
             else:
                 n_global_features += global_featurizer.feat_size
         return n_global_features
 
 
-class SLAPProductDataset:
+class SynFermProductDataset:
     """
-    A wrapper around SLAPDataset that simplifies loading a dataset for inference.
+    A wrapper around SynFermDataset that simplifies loading a dataset for inference.
 
-    Where the SLAPDataset expects reactionSMILES as inputs which can take some effort to produce, this wrapper expects
-    only the SMILES corresponding to the product. From the product SMILES, it infers possible reactionSMILES leading to
-    the product (this can be two different reactionSMILES). It further annotates the SMILES with information about how
+    Where the SynfermDataset expects reactionSMILES as inputs which can take some effort to produce, this wrapper expects
+    only the SMILES corresponding to the product. From the product SMILES, it infers the reactionSMILES leading to
+    the product (this is a bijective mapping). It further annotates the SMILES with information about how
     close it is to the data used to train the model.
     """
+
+
 
     dummy_reactants = [
         [Chem.MolFromSmiles("C"), Chem.MolFromSmiles("C")],
@@ -367,14 +368,15 @@ class SLAPProductDataset:
         """
         At least one of smiles and file_path has to be given. If both are given, the contents are concatenated.
         Args:
-            smiles (list): Products of the SLAP reaction, given as SMILES.
-            file_path (os.PathLike): Path to csv file containing products of the SLAP reaction, given as SMILES.
+            smiles (list): Products of the SynFerm reaction, given as SMILES.
+            file_path (os.PathLike): Path to csv file containing products of the SynFerm reaction, given as SMILES.
             file_smiles_column (str): Header of the column containing SMILES. Defaults to "SMILES"
             is_reaction (bool): Whether the SMILES are reaction SMILES (or product SMILES). Defaults to False.
                 If reactionSMILES are given, we skip generating reactions and only use the given reaction.
             use_validation (bool): Whether the validation plate data was used in training. This changes which reactions
              will be considered similar to training data. Defaults to False.
         """
+        raise NotImplementedError("needs to be adapted from SLAP to SynFerm if needed.")
         # load the SMILES
         self.dataset_0D = None
         self.dataset_1D_aldehyde = None
@@ -580,39 +582,39 @@ class SLAPProductDataset:
         reactions_0D = [self.reactions[i] for i in self.idx_0D]
         if len(reactions_0D) > 0:
             try:
-                self.dataset_0D = SLAPDataset(
+                self.dataset_0D = SynFermDataset(
                     name="0D", **processing_kwargs["dataset_0D"]
                 )
             except KeyError:
-                self.dataset_0D = SLAPDataset(name="0D")
+                self.dataset_0D = SynFermDataset(name="0D")
             self.dataset_0D.process(reactions_0D)
         # all reactions with 1D_aldehyde problem type go into the same dataset
         reactions_1D_aldehyde = [self.reactions[i] for i in self.idx_1D_aldehyde]
         if len(reactions_1D_aldehyde) > 0:
             try:
-                self.dataset_1D_aldehyde = SLAPDataset(
+                self.dataset_1D_aldehyde = SynFermDataset(
                     name="1D_aldehyde", **processing_kwargs["dataset_1D_aldehyde"]
                 )
             except KeyError:
-                self.dataset_1D_aldehyde = SLAPDataset(name="1D_aldehyde")
+                self.dataset_1D_aldehyde = SynFermDataset(name="1D_aldehyde")
             self.dataset_1D_aldehyde.process(reactions_1D_aldehyde)
         # all reactions with 1D_SLAP problem type go into the same dataset
         reactions_1D_slap = [self.reactions[i] for i in self.idx_1D_slap]
         if len(reactions_1D_slap) > 0:
             try:
-                self.dataset_1D_slap = SLAPDataset(
+                self.dataset_1D_slap = SynFermDataset(
                     name="1D_SLAP", **processing_kwargs["dataset_1D_slap"]
                 )
             except KeyError:
-                self.dataset_1D_slap = SLAPDataset(name="1D_SLAP")
+                self.dataset_1D_slap = SynFermDataset(name="1D_SLAP")
             self.dataset_1D_slap.process([self.reactions[i] for i in self.idx_1D_slap])
         # all reactions with 2D problem type go into the same dataset
         reactions_2D = [self.reactions[i] for i in self.idx_2D]
         if len(reactions_2D) > 0:
             try:
-                self.dataset_2D = SLAPDataset(
+                self.dataset_2D = SynFermDataset(
                     name="2D", **processing_kwargs["dataset_2D"]
                 )
             except KeyError:
-                self.dataset_2D = SLAPDataset(name="2D")
+                self.dataset_2D = SynFermDataset(name="2D")
             self.dataset_2D.process(reactions_2D)

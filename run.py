@@ -21,9 +21,9 @@ if __name__ == "__main__":
         help="Path to the data. For training, this should contain labels. For prediction, labels will be ignored.",
     )
     parent_parser.add_argument(
-        "--smiles-column",
+        "--smiles-columns",
         type=str,
-        default="SMILES",
+        default=["SMILES", ],
         help="Name of the column containing SMILES strings to use as input.",
     )
     parent_parser.add_argument(
@@ -53,9 +53,10 @@ if __name__ == "__main__":
     train_parser.set_defaults(func=run_training)
 
     train_parser.add_argument(
-        "--label-column",
+        "--label-columns",
         type=str,
-        default="targets",
+        nargs="+",
+        default=["targets", ],
         help="Name of the column containing ground truth labels.",
     )
     train_parser.add_argument(
