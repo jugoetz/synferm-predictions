@@ -137,15 +137,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # parse configuration file
-    hparams = get_config(args.config)
+    config = get_config(args.config)
 
     # overwrite some typically changed hparams with command line arguments
     # slightly unintuitive:
     #   Checking for None works here because argparse will parse "None" as a string, which makes it not None
     if args.global_features:
-        hparams["decoder"]["global_features"] = args.global_features
+        config["decoder"]["global_features"] = args.global_features
     if args.global_features_file:
-        hparams["decoder"]["global_features_file"] = args.global_features_file
+        config["decoder"]["global_features_file"] = args.global_features_file
+    if args.task:
+        config["training"]["task"] = args.task
 
     # set wandb online/offline
     if args.wandb_offline:
@@ -153,4 +155,4 @@ if __name__ == "__main__":
     else:
         os.environ["WANDB_MODE"] = "online"
 
-    args.func(args, hparams)
+    args.func(args, config)
