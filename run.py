@@ -1,4 +1,5 @@
 import argparse
+import os
 import pathlib
 
 from src.run_experiment import run_training, run_prediction
@@ -46,6 +47,12 @@ if __name__ == "__main__":
         "--global-features-file",
         type=pathlib.Path,
         help="Path to file containing global features. Required if --global-features is set to 'fromFile'.",
+    )
+
+    parent_parser.add_argument(
+        "--wandb-offline",
+        action="store_true",
+        help="Turn off wandb syncing.",
     )
 
     # train parser
@@ -133,10 +140,17 @@ if __name__ == "__main__":
     hparams = get_config(args.config)
 
     # overwrite some typically changed hparams with command line arguments
-    # slightly unintuitive: Checking for None works here because argparse will parse "None" as a string, which makes it not None
+    # slightly unintuitive:
+    #   Checking for None works here because argparse will parse "None" as a string, which makes it not None
     if args.global_features:
         hparams["decoder"]["global_features"] = args.global_features
     if args.global_features_file:
         hparams["decoder"]["global_features_file"] = args.global_features_file
+
+    # set wandb online/offline
+    if args.wandb_offline:
+        os.environ["WANDB_MODE"] = "offline"
+    else:
+        os.environ["WANDB_MODE"] = "online"
 
     args.func(args, hparams)

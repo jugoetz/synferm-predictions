@@ -224,7 +224,7 @@ class DMPNNModel(Classifier):
         return FFN(
             in_size=self.hparams.encoder["hidden_size"]
             + self.hparams["global_feature_size"],
-            out_size=1,
+            out_size=self.hparams["num_labels"],
             **self.hparams.decoder,
         )
 
@@ -304,7 +304,7 @@ class GCNModel(Classifier):
         return FFN(
             in_size=self.hparams.encoder["hidden_size"]
             + self.hparams["global_feature_size"],
-            out_size=1,
+            out_size=self.hparams["num_labels"],
             **self.hparams.decoder,
         )
 
@@ -348,7 +348,7 @@ class FFNModel(Classifier):
     def init_decoder(self):
         return FFN(
             in_size=self.hparams["global_feature_size"],
-            out_size=1,
+            out_size=self.hparams["num_labels"],
             **self.hparams.decoder,
         )
 
@@ -380,7 +380,7 @@ class GraphAgnosticModel(Classifier):
         return FFN(
             in_size=self.hparams["atom_feature_size"]
             + self.hparams["bond_feature_size"],
-            out_size=1,
+            out_size=self.hparams["num_labels"],
             **self.hparams.decoder,
         )
 

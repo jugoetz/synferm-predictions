@@ -32,6 +32,7 @@ def run_training(args, hparams):
     hparams["atom_feature_size"] = data.atom_feature_size
     hparams["bond_feature_size"] = data.bond_feature_size
     hparams["global_feature_size"] = data.global_feature_size
+    hparams["num_labels"] = data.num_labels
     if data.global_featurizer_state_dict_path:  # only in case of OHE
         hparams["global_featurizer_state_dict_path"] = str(
             data.global_featurizer_state_dict_path

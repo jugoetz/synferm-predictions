@@ -330,6 +330,10 @@ class SynFermDataset(DGLDataset):
         return self.atom_feature_size + self.bond_feature_size
 
     @property
+    def num_labels(self) -> int:
+        return len(self.labels[0])
+
+    @property
     def global_feature_size(self) -> int:
         n_global_features = 0
         for global_featurizer in self.global_featurizers:
