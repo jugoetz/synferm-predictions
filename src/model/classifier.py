@@ -1,13 +1,12 @@
+from copy import deepcopy
+
 import pytorch_lightning as pl
 import torch
-import torch.nn.functional as F
 import torchmetrics as tm
-
 from dgllife.model.gnn.gcn import GCN
-from torch import nn
 
-from src.layer.mpnn import MPNNEncoder
 from src.layer.ffn import FFN
+from src.layer.mpnn import MPNNEncoder
 from src.layer.pooling import (
     GlobalAttentionPooling,
     AvgPooling,
@@ -52,13 +51,52 @@ class Classifier(pl.LightningModule):
         self.save_hyperparameters()
         self.encoder = self.init_encoder()
         self.decoder = self.init_decoder()
+        self.loss = self.init_loss()
+        average = "micro" if self.hparams["training"]["task"] == "multiclass" else None
+        auroc_average = "macro" if self.hparams["training"]["task"] == "multiclass" else None
+        # TODO there is an upstream problem with torchmetrics
+        #  the binary and multilabel accuracies assume they are receiving logits if any value is outside [0,1]
+        #  otherwise they assume probabilities.
+        #  Of course this is a stupid assumption.
+        #  Hopefully soon fixed upstream, see https://github.com/Lightning-AI/torchmetrics/issues/1604
+        #  and https://github.com/Lightning-AI/torchmetrics/pull/1676
+        #  meantime "Prinzip Hoffnung"
         self.metrics = torch.nn.ModuleDict(
             {
-                "accuracy": tm.Accuracy(task=self.hparams["training"]["task"]),
-                "AUROC": tm.AUROC(task=self.hparams["training"]["task"]),
-                "precision": tm.Precision(task=self.hparams["training"]["task"]),
-                "recall": tm.Recall(task=self.hparams["training"]["task"]),
-                "f1": tm.F1Score(task=self.hparams["training"]["task"]),
+                "accuracy": tm.Accuracy(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    threshold=0.5,  # applies for binary and multilabel
+                    average=average,
+                ),
+                "precision": tm.Precision(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    threshold=0.5,  # applies for binary and multilabel
+                    average=average,
+                ),
+                "recall": tm.Recall(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    threshold=0.5,  # applies for binary and multilabel
+                    average=average,
+                ),
+                "f1": tm.F1Score(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    threshold=0.5,  # applies for binary and multilabel
+                    average=average,
+                ),
+                "auroc": tm.AUROC(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    average=auroc_average,
+                ),
             }
         )
 
@@ -68,6 +106,14 @@ class Classifier(pl.LightningModule):
     def init_decoder(self):
         raise NotImplementedError("Child class must implement this method")
 
+    def init_loss(self):
+        if self.hparams["training"]["task"] in ["binary", "multilabel"]:
+            return torch.nn.BCEWithLogitsLoss()
+        elif self.hparams["training"]["task"] == "multiclass":
+            return torch.nn.CrossEntropyLoss()
+        else:
+            raise ValueError(f"'task' needs to be one of [binary, multiclass, multilabel]. Input: {self.hparams['training']['task']}")
+
     def forward(self, x):
         raise NotImplementedError("Child class must implement this method")
 
@@ -75,13 +121,32 @@ class Classifier(pl.LightningModule):
         raise NotImplementedError("Child class must implement this method")
 
     def _get_preds_loss_metrics(self, batch):
-        y = batch[-1]
-        y_hat = self._get_preds(batch)
+        labels = batch[-1]
+        # we need to transform the labels to class indices
+        if self.hparams["training"]["task"] == "multiclass":
+            # apply argmax to get class index
+            targets = torch.argmax(labels, dim=1)
+        else:
+            # for binary and multilabel task, no transformations are needed
+            targets = labels
+
+        preds = self._get_preds(batch)
 
         # calculate loss
-        loss = self.calc_loss(y_hat, y)
+        loss = self.loss(preds, targets)
 
-        return y_hat, loss, {k: v(y_hat, y) for k, v in self.metrics.items()}
+        # calculate metrics
+        metrics = {k: v(preds, targets) for k, v in self.metrics.items()}
+        # in the multilabel case, we receive metrics for each label
+        # we separate them
+        if self.hparams["training"]["task"] == "multilabel":
+            for k, v in deepcopy(metrics).items():
+                if len(v) == self.hparams["num_labels"]:
+                    for i, c in enumerate(self.hparams["target_names"]):
+                        metrics[f"{k}_target_{c}"] = metrics[k][i]
+                    del metrics[k]
+
+        return preds, loss, metrics
 
     def training_step(self, batch, batch_idx):
         preds, loss, metrics = self._get_preds_loss_metrics(batch)
@@ -193,21 +258,6 @@ class Classifier(pl.LightningModule):
 
         return scheduler
 
-    def calc_loss(self, preds, truth):
-        if self.hparams.decoder["out_sigmoid"]:
-            loss = F.binary_cross_entropy(
-                preds,
-                truth.to(torch.float),  # input label is int for metric purpose
-                reduction="mean",
-            )
-        else:
-            loss = F.binary_cross_entropy_with_logits(
-                preds,
-                truth.to(torch.float),  # input label is int for metric purpose
-                reduction="mean",
-            )
-        return loss
-
 
 class DMPNNModel(Classifier):
     def __init__(self, **kwargs):
@@ -284,7 +334,7 @@ class GCNModel(Classifier):
     def init_pooling(self):
         if self.hparams["encoder"]["aggregation"] == "attention":
             self.pooling = GlobalAttentionPooling(
-                gate_nn=nn.Linear(self.hparams["encoder"]["hidden_size"], 1),
+                gate_nn=torch.nn.Linear(self.hparams["encoder"]["hidden_size"], 1),
                 ntype="_N",
                 feat="h_v",
                 get_attention=True,

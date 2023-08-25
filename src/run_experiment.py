@@ -25,6 +25,7 @@ def run_training(args, hparams):
         global_features=hparams["decoder"]["global_features"],
         global_features_file=hparams["decoder"]["global_features_file"],
         featurizers=hparams["encoder"]["featurizers"],
+        task=hparams["training"]["task"],
     )
     data.process()
 
@@ -33,6 +34,8 @@ def run_training(args, hparams):
     hparams["bond_feature_size"] = data.bond_feature_size
     hparams["global_feature_size"] = data.global_feature_size
     hparams["num_labels"] = data.num_labels
+    hparams["label_binarizer"] = data.label_binarizer
+    hparams["target_names"] = args.label_columns
     if data.global_featurizer_state_dict_path:  # only in case of OHE
         hparams["global_featurizer_state_dict_path"] = str(
             data.global_featurizer_state_dict_path
@@ -134,6 +137,7 @@ def run_prediction(args, hparams):
         graph_type=hparams["encoder"]["graph_type"],
         global_features=hparams["decoder"]["global_features"],
         featurizers=hparams["encoder"]["featurizers"],
+        task=hparams["training"]["task"],
     )
 
     # instantiate DataLoader

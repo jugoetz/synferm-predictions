@@ -11,6 +11,7 @@ import torch
 import pandas as pd
 from dgllife.utils.featurizers import CanonicalAtomFeaturizer, CanonicalBondFeaturizer
 from rdkit import Chem
+from sklearn.preprocessing import LabelBinarizer
 
 from src.data.grapher import build_cgr, build_mol_graph
 from src.data.featurizers import (
@@ -44,7 +45,8 @@ def collate_fn(
     if labels[0][0] is None:
         batched_labels = None
     else:
-        batched_labels = torch.tensor(labels)
+        # we cast the labels to float as BCELoss requires that
+        batched_labels = torch.tensor(labels, dtype=torch.float32)
 
     return batched_graphs, batched_global_features, batched_labels
 
@@ -73,6 +75,7 @@ class SynFermDataset(DGLDataset):
         featurizers: str = "dgllife",
         smiles_columns: tuple = ("SMILES",),
         label_columns: Optional[Tuple[str]] = ("label",),
+        task: str = "binary",
         save_dir: Union[str, os.PathLike] = None,
         force_reload=False,
         verbose=True,
@@ -100,6 +103,7 @@ class SynFermDataset(DGLDataset):
                 Default "dgllife".
             smiles_columns: Headers of columns in data file that contain SMILES strings
             label_columns: Header of the columns in data file that contain the labels
+            task: Kind of prediction task. Options: {binary, multiclass, multilabel}
             save_dir: Directory to save the processed data set. If None, `raw_dir` is used. Default None.
             force_reload: Reload data set, ignoring cache. Default False.
             verbose: Whether to provide verbose output
@@ -112,6 +116,8 @@ class SynFermDataset(DGLDataset):
         self.label_columns = label_columns
         self.smiles_columns = smiles_columns
         self.graph_type = graph_type  # whether to form BE- or BN-graph
+        self.task = task
+        self.label_binarizer = LabelBinarizer()
         self.global_features = (
             []
         )  # container for global features e.g. rdkit or fingerprints
@@ -286,9 +292,16 @@ class SynFermDataset(DGLDataset):
                     ]
 
         if self.label_columns is not None and csv_data is not None:
-            self.labels = csv_data[self.label_columns].values.tolist()
+            labels = csv_data[self.label_columns].to_numpy()
+            # we apply the label binarizer regardless of task.
+            # for binary task, it will encode the labels if they are given as strings, else leave them untouched
+            # for multiclass task, it will one-hot encode the labels
+            # for multilabel task, it will leave the labels untouched
+            # combination of multiclass and multilabel is not supported
+            self.labels = self.label_binarizer.fit_transform(labels).tolist()
+
         else:
-            # allow having no labels, e.g. for inference
+            # allow having no labels (for inference)
             self.labels = [[None] for _ in smiles]
 
         # little safety net
@@ -331,6 +344,10 @@ class SynFermDataset(DGLDataset):
 
     @property
     def num_labels(self) -> int:
+        """
+        Returns the number of labels/targets.
+        In the multiclass task, this equals the number of classes.
+        """
         return len(self.labels[0])
 
     @property
