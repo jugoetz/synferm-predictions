@@ -24,10 +24,11 @@ if __name__ == "__main__":
     parent_parser.add_argument(
         "--smiles-columns",
         type=str,
+        nargs="+",
         default=[
             "SMILES",
         ],
-        help="Name of the column containing SMILES strings to use as input.",
+        help="Name of the columns containing SMILES strings to use as input.",
     )
     parent_parser.add_argument(
         "--tags",
