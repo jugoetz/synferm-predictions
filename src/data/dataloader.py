@@ -17,8 +17,8 @@ from src.data.grapher import build_cgr, build_mol_graph
 from src.data.featurizers import (
     ChempropAtomFeaturizer,
     ChempropBondFeaturizer,
-    SLAPAtomFeaturizer,
-    SLAPBondFeaturizer,
+    SynFermAtomFeaturizer,
+    SynFermBondFeaturizer,
     RDKit2DGlobalFeaturizer,
     RDKitMorganFingerprinter,
     OneHotEncoder,
@@ -138,12 +138,8 @@ class SynFermDataset(DGLDataset):
             self.atom_featurizer = ChempropAtomFeaturizer(atom_data_field="x")
             self.bond_featurizer = ChempropBondFeaturizer(bond_data_field="e")
         elif featurizers == "custom":
-            self.atom_featurizer = SLAPAtomFeaturizer(
-                atom_data_field="x"
-            )  # TODO adapt for SF
-            self.bond_featurizer = SLAPBondFeaturizer(
-                bond_data_field="e"
-            )  # TODO adapt for SF
+            self.atom_featurizer = SynFermAtomFeaturizer(atom_data_field="x")
+            self.bond_featurizer = SynFermBondFeaturizer(bond_data_field="e")
         else:
             raise ValueError(f"Unexpected value '{featurizers}' for 'featurizers'")
 

@@ -32,22 +32,24 @@ from rdkit.DataStructs import ConvertToNumpyArray
 
 from src.util.rdkit_util import canonicalize_smiles
 
+# TODO we might want additional featurizers that use properties, e.g. FOMO energies
 
-class SLAPAtomFeaturizer(BaseAtomFeaturizer):
-    """An atom featurizer tailored to SLAP chemistry.
+
+class SynFermAtomFeaturizer(BaseAtomFeaturizer):
+    """An atom featurizer tailored to SynFerm chemistry.
 
     The atom features are:
 
-    * **One hot encoding of the atom type**. 12 elements ["H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Br", "I",] and "unknown" are supported.
+    * **One hot encoding of the atom type**. 11 elements ["H", "B", "C", "N", "O", "F", "Si", "S", "Cl", "Br", "I"] and "unknown" are supported.
     * **One hot encoding of the atom degree**. The supported possibilities are ``0 - 5``.
     * **One hot encoding of the formal charge of the atom**. [-1, 0, 1] and "unknown" are supported.
-    * **One hot encoding of the number of total Hs on the atom**. The supported possibilities are ``0 - 4``.
+    * **One hot encoding of the number of total Hs on the atom**. The supported possibilities are ``0 - 3``.
     * **One hot encoding of the atom hybridization**. The supported possibilities are
       ``S``, ``SP``, ``SP2``, ``SP3`` and "unknown".
     * **Whether the atom is aromatic**.
     * **Whether the atom is in a ring**.
 
-    In total, the feature vector has length 35.
+    In total, the feature vector has length 33.
 
     **We assume the resulting DGLGraph will not contain any virtual nodes.**
 
@@ -66,7 +68,6 @@ class SLAPAtomFeaturizer(BaseAtomFeaturizer):
             "O",
             "F",
             "Si",
-            "P",
             "S",
             "Cl",
             "Br",
@@ -93,7 +94,7 @@ class SLAPAtomFeaturizer(BaseAtomFeaturizer):
                     ),
                     partial(
                         atom_total_num_H_one_hot,
-                        allowable_set=list(range(5)),
+                        allowable_set=list(range(4)),
                         encode_unknown=False,
                     ),
                     partial(
@@ -115,22 +116,16 @@ class SLAPAtomFeaturizer(BaseAtomFeaturizer):
         super().__init__(featurizer_funcs=featurizer_funcs)
 
 
-class SLAPBondFeaturizer(BaseBondFeaturizer):
-    """A bond featurizer tailored to SLAP chemistry.
-
-    Actually, this turned out to be identical to dgllife's canonical bond featurizer.
-    We still keep it to be safe in case they change it.
+class SynFermBondFeaturizer(BaseBondFeaturizer):
+    """A bond featurizer tailored to SynFerm chemistry.
 
     The bond features are:
     * **One hot encoding of the bond type**. The supported bond types are
       ``SINGLE``, ``DOUBLE``, ``TRIPLE``, ``AROMATIC``.
     * **Whether the bond is conjugated.**.
     * **Whether the bond is in a ring.**
-    * **One hot encoding of the stereo configuration of a bond**. The supported bond stereo
-      configurations include ``STEREONONE``, ``STEREOANY``, ``STEREOZ``, ``STEREOE``,
-      ``STEREOCIS``, ``STEREOTRANS``.
 
-    In total, the feature vector has length 12.
+    In total, the feature vector has length 6.
 
     **We assume the resulting DGLGraph will be created with :func:`smiles_to_bigraph` without
     self loops.**
@@ -143,7 +138,6 @@ class SLAPBondFeaturizer(BaseBondFeaturizer):
                     bond_type_one_hot,
                     bond_is_conjugated,
                     bond_is_in_ring,
-                    bond_stereo_one_hot,
                 ]
             )
         }
