@@ -32,7 +32,6 @@ class MPNNEncoder(nn.Module):
             - atom_messages
             - atom_descriptors
             - aggregation by norm
-            - dropout  TODO dropout could be useful
 
         Args:
             atom_feature_size (int): Atom feature vector size.
