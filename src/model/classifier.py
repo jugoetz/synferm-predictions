@@ -53,7 +53,9 @@ class Classifier(pl.LightningModule):
         self.decoder = self.init_decoder()
         self.loss = self.init_loss()
         average = "micro" if self.hparams["training"]["task"] == "multiclass" else None
-        auroc_average = "macro" if self.hparams["training"]["task"] == "multiclass" else None
+        auroc_average = (
+            "macro" if self.hparams["training"]["task"] == "multiclass" else None
+        )
         # TODO there is an upstream problem with torchmetrics
         #  the binary and multilabel accuracies assume they are receiving logits if any value is outside [0,1]
         #  otherwise they assume probabilities.
@@ -112,7 +114,9 @@ class Classifier(pl.LightningModule):
         elif self.hparams["training"]["task"] == "multiclass":
             return torch.nn.CrossEntropyLoss()
         else:
-            raise ValueError(f"'task' needs to be one of [binary, multiclass, multilabel]. Input: {self.hparams['training']['task']}")
+            raise ValueError(
+                f"'task' needs to be one of [binary, multiclass, multilabel]. Input: {self.hparams['training']['task']}"
+            )
 
     def forward(self, x):
         raise NotImplementedError("Child class must implement this method")

@@ -24,7 +24,9 @@ if __name__ == "__main__":
     parent_parser.add_argument(
         "--smiles-columns",
         type=str,
-        default=["SMILES", ],
+        default=[
+            "SMILES",
+        ],
         help="Name of the column containing SMILES strings to use as input.",
     )
     parent_parser.add_argument(
@@ -63,7 +65,9 @@ if __name__ == "__main__":
         "--label-columns",
         type=str,
         nargs="+",
-        default=["targets", ],
+        default=[
+            "targets",
+        ],
         help="Name of the column containing ground truth labels.",
     )
     train_parser.add_argument(

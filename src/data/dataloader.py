@@ -138,8 +138,12 @@ class SynFermDataset(DGLDataset):
             self.atom_featurizer = ChempropAtomFeaturizer(atom_data_field="x")
             self.bond_featurizer = ChempropBondFeaturizer(bond_data_field="e")
         elif featurizers == "custom":
-            self.atom_featurizer = SLAPAtomFeaturizer(atom_data_field="x")  # TODO adapt for SF
-            self.bond_featurizer = SLAPBondFeaturizer(bond_data_field="e")  # TODO adapt for SF
+            self.atom_featurizer = SLAPAtomFeaturizer(
+                atom_data_field="x"
+            )  # TODO adapt for SF
+            self.bond_featurizer = SLAPBondFeaturizer(
+                bond_data_field="e"
+            )  # TODO adapt for SF
         else:
             raise ValueError(f"Unexpected value '{featurizers}' for 'featurizers'")
 
@@ -307,7 +311,9 @@ class SynFermDataset(DGLDataset):
         # little safety net
         assert len(self.graphs) == len(self.labels) == len(self.global_features)
 
-    def __getitem__(self, idx: int) -> Tuple[dgl.DGLGraph, List[np.ndarray], List[list]]:
+    def __getitem__(
+        self, idx: int
+    ) -> Tuple[dgl.DGLGraph, List[np.ndarray], List[list]]:
         """Get graph and label by index
 
         Args:
@@ -371,8 +377,6 @@ class SynFermProductDataset:
     the product (this is a bijective mapping). It further annotates the SMILES with information about how
     close it is to the data used to train the model.
     """
-
-
 
     dummy_reactants = [
         [Chem.MolFromSmiles("C"), Chem.MolFromSmiles("C")],

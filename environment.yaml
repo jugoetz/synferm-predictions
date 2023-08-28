@@ -15,6 +15,7 @@ dependencies:
   - lightning=2.0.*
   - torchmetrics=1.0.*
   - dglteam/label/cu117::dgl
+  - pre-commit=3.3.*
   - pip
   - pip:
     - dgllife

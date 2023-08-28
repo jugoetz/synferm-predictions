@@ -8,5 +8,5 @@ Notes:
    Remove the CUDA dependencies to install for use on CPU.
 
 ```bash
-mamba env create -f environment.yaml 
+mamba env create -f environment.yaml
 ```

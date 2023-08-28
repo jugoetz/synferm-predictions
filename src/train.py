@@ -219,7 +219,3 @@ def train_sklearn(
         return run_id, metrics
     else:
         return run_id
-
-
-
-    
