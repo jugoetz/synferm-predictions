@@ -314,7 +314,7 @@ class GCNModel(Classifier):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.init_pooling()
+        self.pooling = self.init_pooling()
 
     def init_encoder(self):
         return GCN(
@@ -337,18 +337,18 @@ class GCNModel(Classifier):
 
     def init_pooling(self):
         if self.hparams["encoder"]["aggregation"] == "attention":
-            self.pooling = GlobalAttentionPooling(
+            return GlobalAttentionPooling(
                 gate_nn=torch.nn.Linear(self.hparams["encoder"]["hidden_size"], 1),
                 ntype="_N",
                 feat="h_v",
                 get_attention=True,
             )
         elif self.hparams["encoder"]["aggregation"] == "mean":
-            self.pooling = AvgPooling(ntype="_N", feat="h_v")
+            return AvgPooling(ntype="_N", feat="h_v")
         elif self.hparams["encoder"]["aggregation"] == "sum":
-            self.pooling = SumPooling(ntype="_N", feat="h_v")
+            return SumPooling(ntype="_N", feat="h_v")
         elif self.hparams["encoder"]["aggregation"] == "max":
-            self.pooling = MaxPooling(ntype="_N", feat="h_v")
+            return MaxPooling(ntype="_N", feat="h_v")
         else:
             raise ValueError(
                 "Aggregation must be one of ['max', 'mean', 'sum', 'attention']"
