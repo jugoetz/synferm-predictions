@@ -5,16 +5,26 @@ from collections import defaultdict
 
 
 def index_from_file(path):
-    """Load a list of newline-separated integer indices from a file"""
-    with open(path, "r") as file:
-        indices = [int(l.strip("\n")) for l in file.readlines()]
+    """
+    Load a list of newline-separated integer indices from a file.
+
+    If the file has a single-line header it will be ignored.
+    If the fine has a multi-line header, a ValueError is raised.
+    """
+    try:
+        with open(path, "r") as file:
+            indices = [int(l.strip("\n")) for l in file.readlines()]
+    except ValueError:
+        with open(path, "r") as file:
+            next(file)  # skip the first line
+            indices = [int(l.strip("\n")) for l in file.readlines()]
     return indices
 
 
 def get_hparam_bounds(path):
     """Read hyperparameter bounds from a yaml file"""
-    with open(path, "r") as f:
-        bounds = yaml.safe_load(f)
+    with open(path, "r") as file:
+        bounds = yaml.safe_load(file)
     return bounds
 
 
