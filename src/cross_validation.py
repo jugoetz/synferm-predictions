@@ -91,12 +91,32 @@ def cross_validate(
         # instantiate DataLoaders
         data_splitted = {k: [data[i] for i in v] for k, v in fold.items()}
         train_dl = DataLoader(
-            data_splitted["train"], batch_size=32, shuffle=True, collate_fn=collate_fn
+            data_splitted["train"],
+            batch_size=64,
+            shuffle=True,
+            collate_fn=collate_fn,
+            num_workers=4,
+            pin_memory=True,
+            persistent_workers=True,
         )
-        val_dl = DataLoader(data_splitted["val"], batch_size=32, collate_fn=collate_fn)
+        val_dl = DataLoader(
+            data_splitted["val"],
+            batch_size=64,
+            collate_fn=collate_fn,
+            num_workers=4,
+            pin_memory=True,
+            persistent_workers=True,
+        )
         test_dls = (
             {
-                k: DataLoader(v, batch_size=32, collate_fn=collate_fn)
+                k: DataLoader(
+                    v,
+                    batch_size=64,
+                    collate_fn=collate_fn,
+                    num_workers=4,
+                    pin_memory=False,
+                    persistent_workers=False,
+                )
                 for k, v in data_splitted.items()
                 if k.startswith("test")
             }
