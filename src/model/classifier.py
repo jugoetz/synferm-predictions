@@ -93,12 +93,12 @@ class Classifier(pl.LightningModule):
                     threshold=0.5,  # applies for binary and multilabel
                     average=average,
                 ),
-                "auroc": tm.AUROC(
-                    task=self.hparams["training"]["task"],
-                    num_labels=kwargs["num_labels"],
-                    num_classes=kwargs["num_labels"],
-                    average=auroc_average,
-                ),
+                # "auroc": tm.AUROC(
+                #     task=self.hparams["training"]["task"],
+                #     num_labels=kwargs["num_labels"],
+                #     num_classes=kwargs["num_labels"],
+                #     average=auroc_average,
+                # ),
             }
         )
 
@@ -124,7 +124,7 @@ class Classifier(pl.LightningModule):
     def _get_preds(self, batch):
         raise NotImplementedError("Child class must implement this method")
 
-    def _get_preds_loss_metrics(self, batch):
+    def _get_preds_loss_metrics(self, batch, dataloader_idx):
         labels = batch[-1]
         # we need to transform the labels to class indices
         if self.hparams["training"]["task"] == "multiclass":
@@ -140,7 +140,9 @@ class Classifier(pl.LightningModule):
         loss = self.loss(preds, targets)
 
         # calculate metrics
-        metrics = {k: v(preds, targets) for k, v in self.metrics.items()}
+        metrics = {
+            f"{dataloader_idx}/{k}": v(preds, targets) for k, v in self.metrics.items()
+        }
         # in the multilabel case, we receive metrics for each label
         # we separate them
         if self.hparams["training"]["task"] == "multilabel":
@@ -153,46 +155,21 @@ class Classifier(pl.LightningModule):
         return preds, loss, metrics
 
     def training_step(self, batch, batch_idx):
-        preds, loss, metrics = self._get_preds_loss_metrics(batch)
-        self.log(
-            "train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
-        )
-        for k, v in metrics.items():
-            self.log(
-                f"train/{k}",
-                v,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=False,
-                logger=True,
-            )
+        preds, loss, metrics = self._get_preds_loss_metrics(batch, "train")
+        self.log("train/loss", loss, on_step=False, on_epoch=True)
+        self.log_dict(metrics, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        preds, loss, metrics = self._get_preds_loss_metrics(batch)
-        self.log(
-            "val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
-        )
-        for k, v in metrics.items():
-            self.log(
-                f"val/{k}", v, on_step=False, on_epoch=True, prog_bar=False, logger=True
-            )
+        preds, loss, metrics = self._get_preds_loss_metrics(batch, "val")
+        self.log("val/loss", loss, on_step=False, on_epoch=True)
+        self.log_dict(metrics, on_step=False, on_epoch=True)
         return loss
 
     def test_step(self, batch, batch_idx):
-        preds, loss, metrics = self._get_preds_loss_metrics(batch)
-        self.log(
-            "test/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True
-        )
-        for k, v in metrics.items():
-            self.log(
-                f"test/{k}",
-                v,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=False,
-                logger=True,
-            )
+        preds, loss, metrics = self._get_preds_loss_metrics(batch, "test")
+        self.log("test/loss", loss, on_step=False, on_epoch=True)
+        self.log_dict(metrics, on_step=False, on_epoch=True)
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
