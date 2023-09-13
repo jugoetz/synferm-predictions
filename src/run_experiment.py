@@ -18,6 +18,7 @@ def run_training(args, hparams):
     data = SynFermDataset(
         name=args.data_path.name,
         raw_dir=args.data_path.parent,
+        save_dir=(args.data_path.parent / "cache"),
         reaction=hparams["encoder"]["reaction"],
         smiles_columns=args.smiles_columns,
         label_columns=args.label_columns,
@@ -26,8 +27,8 @@ def run_training(args, hparams):
         global_features_file=hparams["decoder"]["global_features_file"],
         featurizers=hparams["encoder"]["featurizers"],
         task=hparams["training"]["task"],
+        force_reload=args.force_reload,
     )
-    data.process()
 
     # update config with data processing specifics
     hparams["atom_feature_size"] = data.atom_feature_size

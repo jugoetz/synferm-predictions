@@ -58,6 +58,10 @@ if __name__ == "__main__":
         help="Turn off wandb syncing.",
     )
 
+    parent_parser.add_argument(
+        "--force_reload", action="store_true", help="Ignore cached data set and reload"
+    )
+
     # train parser
     train_parser = subparsers.add_parser("train", parents=[parent_parser])
     train_parser.set_defaults(func=run_training)

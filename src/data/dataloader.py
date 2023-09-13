@@ -30,23 +30,39 @@ from src.util.rdkit_util import canonicalize_smiles
 
 
 def collate_fn(
-    batch: List[Tuple[dgl.DGLGraph, list, torch.tensor]]
+    batch: List[Tuple[dgl.DGLGraph, torch.tensor, torch.tensor]]
 ) -> Tuple[dgl.DGLGraph, Optional[torch.tensor], torch.tensor]:
     """Collate a list of samples into a batch, i.e. into a single tuple representing the entire batch"""
 
     graphs, global_features, labels = map(list, zip(*batch))
 
     batched_graphs = dgl.batch(graphs)
-    if len(global_features[0]) == 0:
-        batched_global_features = None
-    else:
-        batched_global_features = torch.tensor(global_features, dtype=torch.float32)
 
-    if labels[0][0] is None:
-        batched_labels = None
-    else:
-        # we cast the labels to float as BCELoss requires that
-        batched_labels = torch.tensor(labels, dtype=torch.float32)
+    out_feat = None
+    out_labels = None
+    elem_feat = global_features[0]
+    elem_labels = labels[0]
+    if torch.utils.data.get_worker_info() is not None:
+        # If we're in a background process, concatenate directly into a
+        # shared memory tensor to avoid an extra copy
+        numel_feat = sum(x.numel() for x in global_features)
+        storage = elem_feat._typed_storage()._new_shared(
+            numel_feat, device=elem_feat.device
+        )
+        out_feat = elem_feat.new(storage).resize_(
+            len(global_features), *list(elem_feat.size())
+        )
+
+        numel_labels = sum(x.numel() for x in labels)
+        storage = elem_labels._typed_storage()._new_shared(
+            numel_labels, device=elem_labels.device
+        )
+        out_labels = elem_labels.new(storage).resize_(
+            len(labels), *list(elem_labels.size())
+        )
+
+    batched_global_features = torch.stack(global_features, dim=0, out=out_feat)
+    batched_labels = torch.stack(labels, dim=0, out=out_labels)
 
     return batched_graphs, batched_global_features, batched_labels
 
@@ -118,10 +134,10 @@ class SynFermDataset(DGLDataset):
         self.graph_type = graph_type  # whether to form BE- or BN-graph
         self.task = task
         self.label_binarizer = LabelBinarizer()
-        self.global_features = (
-            []
-        )  # container for global features e.g. rdkit or fingerprints
-        self.global_featurizers = []  # container for global featurizers
+        self.global_features = []
+        self.global_featurizers = []
+        self.graphs = []
+        self.labels = []
         if isinstance(global_featurizer_state_dict_path, str):
             self.global_featurizer_state_dict_path = pathlib.Path(
                 global_featurizer_state_dict_path
@@ -157,6 +173,16 @@ class SynFermDataset(DGLDataset):
                 FromFileFeaturizer(filename=global_features_file)
             )
 
+        hash_key = (
+            self.reaction,
+            self.label_columns,
+            self.smiles_columns,
+            self.graph_type,
+            self.task,
+            global_features,
+            featurizers,
+        )
+
         super(SynFermDataset, self).__init__(
             name=name,
             url=url,
@@ -164,40 +190,62 @@ class SynFermDataset(DGLDataset):
             save_dir=save_dir,
             force_reload=force_reload,
             verbose=verbose,
+            hash_key=hash_key,
         )
 
-    def _load(self):
-        # Parent class calls this method during initialization. We don't want a call to process() here, so we remove
-        # this functionality. We lose caching with this, but don't need it here anyway
-        return
+    def save(self):
+        dgl.data.utils.save_graphs(
+            os.path.join(self.save_path, "graphs.bin"), self.graphs
+        )
+        dgl.data.utils.save_info(
+            os.path.join(self.save_path, "info.bin"),
+            {"global_features": self.global_features, "labels": self.labels},
+        )
 
-    def process(self, smiles: Optional[List[str]] = None):
+    def load(self):
+        self.graphs, _ = dgl.data.utils.load_graphs(
+            os.path.join(self.save_path, "graphs.bin")
+        )
+        info = dgl.data.utils.load_info(os.path.join(self.save_path, "info.bin"))
+        self.global_features = info["global_features"]
+        self.labels = info["labels"]
+
+    def has_cache(self):
+        return os.path.exists(self.save_path)
+
+    @property
+    def save_path(self):
+        return os.path.join(self.save_dir, self.name.removesuffix(".csv") + self.hash)
+
+    def process(self):
         """
-        Read reactionSMILES/SMILES data from csv file or optional argument and generate molecular graph / CGR.
+        Read reactionSMILES or SMILES data from csv file and generate CGR or molecular graph, respectively.
         If the reaction argument was True during __init__, we expect reactionSMILES and produce the condensed graph
-        of reaction (CGR). Else, we expect a single SMILES (product or intermediate) and produce the molecular graph.
-
-        Args:
-            smiles (list): A flat list of reactionSMILES or SMILES. If given, files specified during __init__ are
-                ignored. Defaults to None.
+        of reaction (CGR). Else, we expect a single SMILES and produce the molecular graph.
+        Further, calculates global features and reads labels.
         """
-        csv_data = None
-        if not smiles:
-            csv_data = pd.read_csv(self.raw_path)
-            smiles = [csv_data[s] for s in self.smiles_columns]
 
-            # Currently, we don't support having multiple inputs per data point
-            if len(smiles) > 1:
-                raise NotImplementedError("Multi-input prediction is not implemented.")
-            # ...which allows us to do this:
-            smiles = smiles[0]
-
-        # clear previous data
-        self.graphs = []
-        self.global_features = [np.array(()) for _ in smiles]
-        self.labels = []
-
+        csv_data = pd.read_csv(self.raw_path)
+        smiles = csv_data[
+            list(self.smiles_columns)
+        ]  # shape (n_samples, n_smiles_columns)
         if self.reaction:
+            # check input
+            if smiles.shape[1] != 1:
+                raise ValueError(
+                    "Cannot have more than one reactionSMILES per record. Make sure smiles_columns has exactly one item."
+                )
+
+            # pull out reactant SMILES from reactionSMILES
+            reactants = (
+                smiles.iloc[:, 0]
+                .str.split(">>", expand=True)
+                .iloc[:, 0]
+                .str.split(".", expand=True)
+                .applymap(canonicalize_smiles)
+            )  # shape (n_samples, n_reactants)
+
+            # generate CGR from reactionSMILES
             self.graphs = [
                 build_cgr(
                     s,
@@ -206,122 +254,108 @@ class SynFermDataset(DGLDataset):
                     mode="reac_diff",
                     graph_type=self.graph_type,
                 )
-                for s in smiles
-            ]
+                for s in smiles.iloc[:, 0]
+            ]  # list with shape (n_samples, )
 
         else:
+            # generate molecular graphs from molecule SMILES
             self.graphs = [
-                build_mol_graph(
-                    s,
-                    self.atom_featurizer,
-                    self.bond_featurizer,
-                    graph_type=self.graph_type,
+                [
+                    build_mol_graph(
+                        s,
+                        self.atom_featurizer,
+                        self.bond_featurizer,
+                        graph_type=self.graph_type,
+                    )
+                    for s in smi
+                ]
+                for i, smi in smiles.iterrows()
+            ]  # nested list with shape (n_samples, n_smiles_columns)
+
+        # set input for the global featurizer(s)
+        global_featurizer_input = reactants if self.reaction else smiles
+
+        # apply global featurizers
+        global_features = []
+        for global_featurizer in self.global_featurizers:
+            # OneHotEncoder needs setup
+            if isinstance(global_featurizer, OneHotEncoder):
+                # use state if given
+                if self.global_featurizer_state_dict_path:
+                    # load given state dict
+                    global_featurizer.load_state_dict(
+                        self.global_featurizer_state_dict_path
+                    )
+                else:  # if no state given
+                    # sanity check: OneHotEncoder should not have been initialized before
+                    assert global_featurizer.n_dimensions == 0
+                    # initialize encoder with the list(s) of SMILES to encode
+                    for _, smi in global_featurizer_input.items():
+                        global_featurizer.add_dimension(smi.to_list())
+
+                    # save OHE state (for inference)
+                    self.global_featurizer_state_dict_path = LOG_DIR / (
+                        "OHE_state_dict_"
+                        + "".join(random.choices(string.ascii_letters, k=16))
+                        + ".json"
+                    )
+                    global_featurizer.save_state_dict(
+                        self.global_featurizer_state_dict_path
+                    )
+
+            # calculate global features for all inputs
+            # result has shape (n_samples, len_global_feature)
+            # where len_global_feature is n_smiles_columns (or n_reactants) x global_featurizer.feat_size
+            global_features.append(
+                np.stack(
+                    [
+                        global_featurizer.process(*smi)
+                        for _, smi in global_featurizer_input.iterrows()
+                    ]
                 )
-                for s in smiles
-            ]
+            )
 
-        if len(self.global_featurizers) > 0:
-            if self.reaction:
-                # if it is a reaction, we featurize for all reactants, then concatenate
-                for global_featurizer in self.global_featurizers:
-                    if isinstance(global_featurizer, OneHotEncoder):
-                        # for OHE, we need to set up the encoder with the list(s) of smiles it should encode
-                        if self.global_featurizer_state_dict_path:
-                            # if we already have a state dict, we can load it
-                            global_featurizer.load_state_dict(
-                                self.global_featurizer_state_dict_path
-                            )
-                        else:
-                            # sanity check: the OneHotEncoder should not have been initialized before
-                            assert global_featurizer.n_dimensions == 0
-                            # else, we need to set up the encoder with the list(s) of smiles it should encode
-                            reactants = [[*s.split(">>")[0].split(".")] for s in smiles]
+        if len(global_features) == 0:
+            # if no global features are requested, provide uninitialized array of shape (n_samples, n_smiles_columns)
+            self.global_features = torch.empty(smiles.shape, dtype=torch.float32)
 
-                            for reac in reactants:
-                                global_featurizer.add_dimension(reac)
+        else:
+            # assemble global features into shape (n_samples, len_global_features)
+            # where len_global_features is the sum over the lengths of all global features
+            self.global_features = torch.tensor(
+                np.concatenate(global_features, axis=1), dtype=torch.float32
+            )
 
-                            # and save the state of the encoder, to use it later for inference
-                            self.global_featurizer_state_dict_path = LOG_DIR / (
-                                "OHE_state_dict_"
-                                + "".join(random.choices(string.ascii_letters, k=16))
-                                + ".json"
-                            )
-                            global_featurizer.save_state_dict(
-                                self.global_featurizer_state_dict_path
-                            )
-                    # calculate global features for all reactants and concatenate
-                    self.global_features = [
-                        np.concatenate(i)
-                        for i in zip(
-                            self.global_features,
-                            [
-                                global_featurizer.process(*s.split(">>")[0].split("."))
-                                for s in smiles
-                            ],
-                        )
-                    ]
-
-            else:
-                # if instead we get a single molecule, we just featurize for that
-                for global_featurizer in self.global_featurizers:
-                    if isinstance(global_featurizer, OneHotEncoder):
-                        if self.global_featurizer_state_dict_path:
-                            # if we already have a state dict, we can load it
-                            global_featurizer.load_state_dict(
-                                self.global_featurizer_state_dict_path
-                            )
-                        else:
-                            # else, we need to set up the encoder with the list(s) of smiles it should encode
-                            global_featurizer.add_dimension(smiles)
-                            # and save the state of the encoder, to use it later for inference
-                            self.global_featurizer_state_dict_path = (
-                                LOG_DIR / "OHE_state_dict_"
-                                + "".join(random.choices(string.ascii_letters, k=16))
-                                + ".json"
-                            )
-                            global_featurizer.save_state_dict(
-                                self.global_featurizer_state_dict_path
-                            )
-
-                    self.global_features = [
-                        np.concatenate(i)
-                        for i in zip(
-                            self.global_features,
-                            [global_featurizer.process(s) for s in smiles],
-                        )
-                    ]
-
-        if self.label_columns is not None and csv_data is not None:
-            labels = csv_data[self.label_columns].to_numpy()
+        if self.label_columns:
             # we apply the label binarizer regardless of task.
             # for binary task, it will encode the labels if they are given as strings, else leave them untouched
             # for multiclass task, it will one-hot encode the labels
             # for multilabel task, it will leave the labels untouched
             # combination of multiclass and multilabel is not supported
-            self.labels = self.label_binarizer.fit_transform(labels).tolist()
+            labels = csv_data[self.label_columns].to_numpy()
+            self.labels = torch.tensor(
+                self.label_binarizer.fit_transform(labels), dtype=torch.float32
+            )
 
         else:
-            # allow having no labels (for inference)
-            self.labels = [[None] for _ in smiles]
+            # if no labels are given (for inference), provide uninitialized tensor of shape (n_samples, 1)
+            self.labels = torch.empty((smiles.shape[0], 1), dtype=torch.float32)
 
         # little safety net
         assert len(self.graphs) == len(self.labels) == len(self.global_features)
 
-    def __getitem__(
-        self, idx: int
-    ) -> Tuple[dgl.DGLGraph, List[np.ndarray], List[list]]:
-        """Get graph and label by index
+    def __getitem__(self, idx: int) -> Tuple[dgl.DGLGraph, torch.tensor, torch.tensor]:
+        """Get graph, global features and label(s) by index
 
         Args:
             idx (int): Item index
 
         Returns:
-            (dgl.DGLGraph, list, list)
+            (dgl.DGLGraph, tensor, tensor)
         """
         return self.graphs[idx], self.global_features[idx], self.labels[idx]
 
     def __len__(self) -> int:
-        """Number of graphs in the dataset"""
         return len(self.graphs)
 
     @property
@@ -356,11 +390,18 @@ class SynFermDataset(DGLDataset):
     def global_feature_size(self) -> int:
         n_global_features = 0
         for global_featurizer in self.global_featurizers:
-            if self.reaction and not isinstance(global_featurizer, OneHotEncoder):
-                # for 3 reactants we have 3 x features (except for the OHE which always encorporates all inputs in feat size)
-                n_global_features += 3 * global_featurizer.feat_size
-            else:
+            if isinstance(global_featurizer, OneHotEncoder):
+                # (OHE which always incorporates all inputs in feat size)
                 n_global_features += global_featurizer.feat_size
+            else:
+                if self.reaction:
+                    # for 3 reactants we have 3 x features
+                    n_global_features += 3 * global_featurizer.feat_size
+                else:
+                    # for SMILES inputs, multiply with number of SMILES
+                    n_global_features += global_featurizer.feat_size * len(
+                        self.smiles_columns
+                    )
         return n_global_features
 
 

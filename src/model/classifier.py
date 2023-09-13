@@ -285,10 +285,10 @@ class DMPNNModel(Classifier):
     def forward(self, x):
         graph, global_features = x
         embedding = self.encoder(graph)
-        if global_features is not None:
-            y = self.decoder(torch.cat((embedding, global_features), dim=1))
-        else:
+        if self.hparams["global_feature_size"] == 0:
             y = self.decoder(embedding)
+        else:
+            y = self.decoder(torch.cat((embedding, global_features), dim=1))
 
         return y
 
@@ -364,19 +364,18 @@ class GCNModel(Classifier):
 
     def forward(self, x):
         graph, global_features = x
-        embedding = self.encoder(graph, graph.ndata["x"])
+        embedding_before_pooling = self.encoder(graph, graph.ndata["x"])
         with graph.local_scope():
-            graph.ndata["h_v"] = embedding
+            graph.ndata["h_v"] = embedding_before_pooling
             if self.hparams["encoder"]["aggregation"] == "attention":
-                embedding_pooled, attention = self.pooling(graph)
+                embedding, attention = self.pooling(graph)
             else:
-                embedding_pooled = self.pooling(graph)
+                embedding = self.pooling(graph)
 
-        if global_features is not None:
-            y = self.decoder(torch.cat((embedding_pooled, global_features), dim=1))
+        if self.hparams["global_feature_size"] == 0:
+            y = self.decoder(embedding)
         else:
-            y = self.decoder(embedding_pooled)
-
+            y = self.decoder(torch.cat((embedding, global_features), dim=1))
         return y
 
     def _get_preds(self, batch):
@@ -441,10 +440,10 @@ class GraphAgnosticModel(Classifier):
     def forward(self, x):
         graph, global_features = x
         embedding = self.encoder(graph)
-        if global_features is not None:
-            y = self.decoder(torch.cat((embedding, global_features), dim=1))
-        else:
+        if self.hparams["global_feature_size"] == 0:
             y = self.decoder(embedding)
+        else:
+            y = self.decoder(torch.cat((embedding, global_features), dim=1))
         return y
 
     def _get_preds(self, batch):
