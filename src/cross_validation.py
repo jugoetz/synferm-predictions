@@ -92,7 +92,7 @@ def cross_validate(
         data_splitted = {k: [data[i] for i in v] for k, v in fold.items()}
         train_dl = DataLoader(
             data_splitted["train"],
-            batch_size=64,
+            batch_size=128,
             shuffle=True,
             collate_fn=collate_fn,
             num_workers=4,
@@ -101,7 +101,7 @@ def cross_validate(
         )
         val_dl = DataLoader(
             data_splitted["val"],
-            batch_size=64,
+            batch_size=128,
             collate_fn=collate_fn,
             num_workers=4,
             pin_memory=True,
@@ -111,7 +111,7 @@ def cross_validate(
             {
                 k: DataLoader(
                     v,
-                    batch_size=64,
+                    batch_size=128,
                     collate_fn=collate_fn,
                     num_workers=4,
                     pin_memory=False,

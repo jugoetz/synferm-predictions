@@ -69,13 +69,16 @@ def train(
         auto_insert_metric_name=False,
     )
     metrics_callback = LogMetricsCallback()
+    early_stopping_callback = pl.callbacks.early_stopping.EarlyStopping(
+        monitor="val/loss", mode="min", patience=5
+    )
 
     trainer = pl.Trainer(
         max_epochs=hparams["training"]["max_epochs"],
         log_every_n_steps=20,
         default_root_dir=LOG_DIR / "checkpoints",
         accelerator=hparams["accelerator"],
-        callbacks=[checkpoint_callback_last, metrics_callback],
+        callbacks=[checkpoint_callback_last, metrics_callback, early_stopping_callback],
         logger=False,
         enable_progress_bar=False,
     )
