@@ -1,5 +1,7 @@
 import pickle
+from copy import copy
 
+import torch
 import wandb
 import pytorch_lightning as pl
 
@@ -51,6 +53,11 @@ def train(
     if not run_group:
         run_group = "single_run"
 
+    # add to hparams
+    hparams = copy(hparams)
+    hparams["run_id"] = run_id
+    hparams["run_group"] = run_group
+
     # set up trainer
 
     checkpoint_callback_last = pl.callbacks.ModelCheckpoint(
@@ -65,10 +72,12 @@ def train(
 
     trainer = pl.Trainer(
         max_epochs=hparams["training"]["max_epochs"],
-        log_every_n_steps=1,
+        log_every_n_steps=20,
         default_root_dir=LOG_DIR / "checkpoints",
         accelerator=hparams["accelerator"],
         callbacks=[checkpoint_callback_last, metrics_callback],
+        logger=False,
+        enable_progress_bar=False,
     )
 
     wandb.init(

@@ -30,11 +30,11 @@ from src.util.rdkit_util import canonicalize_smiles
 
 
 def collate_fn(
-    batch: List[Tuple[dgl.DGLGraph, torch.tensor, torch.tensor]]
-) -> Tuple[dgl.DGLGraph, Optional[torch.tensor], torch.tensor]:
+    batch: List[Tuple[int, dgl.DGLGraph, torch.tensor, torch.tensor]]
+) -> Tuple[List[int], dgl.DGLGraph, Optional[torch.tensor], torch.tensor]:
     """Collate a list of samples into a batch, i.e. into a single tuple representing the entire batch"""
 
-    graphs, global_features, labels = map(list, zip(*batch))
+    indices, graphs, global_features, labels = map(list, zip(*batch))
 
     batched_graphs = dgl.batch(graphs)
 
@@ -64,7 +64,7 @@ def collate_fn(
     batched_global_features = torch.stack(global_features, dim=0, out=out_feat)
     batched_labels = torch.stack(labels, dim=0, out=out_labels)
 
-    return batched_graphs, batched_global_features, batched_labels
+    return indices, batched_graphs, batched_global_features, batched_labels
 
 
 class SynFermDataset(DGLDataset):
@@ -199,7 +199,11 @@ class SynFermDataset(DGLDataset):
         )
         dgl.data.utils.save_info(
             os.path.join(self.save_path, "info.bin"),
-            {"global_features": self.global_features, "labels": self.labels},
+            {
+                "global_features": self.global_features,
+                "labels": self.labels,
+                "label_binarizer": self.label_binarizer,
+            },
         )
 
     def load(self):
@@ -209,6 +213,7 @@ class SynFermDataset(DGLDataset):
         info = dgl.data.utils.load_info(os.path.join(self.save_path, "info.bin"))
         self.global_features = info["global_features"]
         self.labels = info["labels"]
+        self.label_binarizer = info["label_binarizer"]
 
     def has_cache(self):
         return os.path.exists(self.save_path)
@@ -344,8 +349,11 @@ class SynFermDataset(DGLDataset):
         # little safety net
         assert len(self.graphs) == len(self.labels) == len(self.global_features)
 
-    def __getitem__(self, idx: int) -> Tuple[dgl.DGLGraph, torch.tensor, torch.tensor]:
-        """Get graph, global features and label(s) by index
+    def __getitem__(
+        self, idx: int
+    ) -> Tuple[int, dgl.DGLGraph, torch.tensor, torch.tensor]:
+        """Get graph, global features and label(s) by index.
+         We also return the index to enable later matching predictions to records.
 
         Args:
             idx (int): Item index
@@ -353,7 +361,7 @@ class SynFermDataset(DGLDataset):
         Returns:
             (dgl.DGLGraph, tensor, tensor)
         """
-        return self.graphs[idx], self.global_features[idx], self.labels[idx]
+        return idx, self.graphs[idx], self.global_features[idx], self.labels[idx]
 
     def __len__(self) -> int:
         return len(self.graphs)
