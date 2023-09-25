@@ -122,6 +122,7 @@ class SynFermDataset(DGLDataset):
             task: Kind of prediction task. Options: {binary, multiclass, multilabel}
             save_dir: Directory to save the processed data set. If None, `raw_dir` is used. Default None.
             force_reload: Reload data set, ignoring cache. Default False.
+                If OHE is in global_features, reload will always be forced.
             verbose: Whether to provide verbose output
         """
 
@@ -168,6 +169,8 @@ class SynFermDataset(DGLDataset):
             )
         if "OHE" in global_features:
             self.global_featurizers.append(OneHotEncoder())
+            # if we use OHE, we cannot rely on cached data sets
+            force_reload = True
         if "fromFile" in global_features:
             self.global_featurizers.append(
                 FromFileFeaturizer(filename=global_features_file)
