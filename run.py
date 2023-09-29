@@ -59,7 +59,7 @@ if __name__ == "__main__":
     )
 
     parent_parser.add_argument(
-        "--force_reload", action="store_true", help="Ignore cached data set and reload"
+        "--force-reload", action="store_true", help="Ignore cached data set and reload"
     )
 
     # train parser

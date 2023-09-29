@@ -1,12 +1,11 @@
 import pickle
 from copy import copy
 
-import torch
 import wandb
 import pytorch_lightning as pl
 
 from src.evaluate import calculate_metrics
-from src.model.callbacks import LogMetricsCallback, BestValLossEpochCallback
+from src.model.callbacks import LogMetricsCallback
 from src.model.classifier import load_model
 from src.model.sklearnmodels import load_sklearn_model
 from src.util.definitions import LOG_DIR, CKPT_DIR
@@ -168,7 +167,7 @@ def train_sklearn(
 
     wandb.init(
         reinit=True,
-        project="slap-gnn",
+        project="synferm-predictions",
         name=run_id,
         group=run_group,
         config=hparams,
@@ -176,12 +175,19 @@ def train_sklearn(
         job_type=job_type,
     )
 
+    if hparams["training"]["task"] == "multilabel":
+        label_names = hparams["target_names"]
+    else:
+        label_names = None
+
     # initialize model
     model = load_sklearn_model(hparams)
 
     # get training and validation data
-    train_graphs, train_global_features, train_labels = map(list, zip(*train))
-    val_graphs, val_global_features, val_labels = map(list, zip(*val))
+    train_idx, train_graphs, train_global_features, train_labels = map(
+        list, zip(*train)
+    )
+    val_idx, val_graphs, val_global_features, val_labels = map(list, zip(*val))
 
     # run training
     model.fit(train_global_features, train_labels)
@@ -189,13 +195,25 @@ def train_sklearn(
     # evaluate on training set
     train_pred = model.predict_proba(train_global_features)
     train_metrics = concatenate_to_dict_keys(
-        calculate_metrics(train_labels, train_pred, pred_proba=True), prefix="train/"
+        calculate_metrics(
+            train_labels,
+            train_pred,
+            task=hparams["training"]["task"],
+            label_names=label_names,
+        ),
+        prefix="train/",
     )
 
     # evaluate on validation set
     val_pred = model.predict_proba(val_global_features)
     val_metrics = concatenate_to_dict_keys(
-        calculate_metrics(val_labels, val_pred, pred_proba=True), prefix="val/"
+        calculate_metrics(
+            val_labels,
+            val_pred,
+            task=hparams["training"]["task"],
+            label_names=label_names,
+        ),
+        prefix="val/",
     )
 
     # logging metrics
@@ -213,11 +231,19 @@ def train_sklearn(
     if test:
         test_metrics = {}
         for k, v in test.items():
-            test_graphs, test_global_features, test_labels = map(list, zip(*v))
+            test_idx, test_graphs, test_global_features, test_labels = map(
+                list, zip(*v)
+            )
             test_pred = model.predict_proba(test_global_features)
             test_metrics.update(
                 concatenate_to_dict_keys(
-                    calculate_metrics(test_labels, test_pred, pred_proba=True), f"{k}/"
+                    calculate_metrics(
+                        test_labels,
+                        test_pred,
+                        task=hparams["training"]["task"],
+                        label_names=label_names,
+                    ),
+                    f"{k}/",
                 )
             )
 

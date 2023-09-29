@@ -1,4 +1,5 @@
 from sklearn.linear_model import LogisticRegression
+from sklearn.multioutput import MultiOutputClassifier
 from xgboost import XGBClassifier, XGBModel
 
 
@@ -25,4 +26,9 @@ def load_sklearn_model(hparams):
         )
     else:
         raise ValueError(f"Model type {hparams['name']} not supported.")
+
+    if hparams["training"]["task"] == "multilabel":
+        # for multilabel, we need to wrap the model (n.b. this will train independent models for each label)
+        model = MultiOutputClassifier(model)
+
     return model

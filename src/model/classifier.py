@@ -165,7 +165,6 @@ class Classifier(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         indices, preds, loss, metrics = self._get_preds_loss_metrics(batch, "val")
-
         self.log("val/loss", loss, on_step=False, on_epoch=True)
         self.log_dict(metrics, on_step=False, on_epoch=True)
         self.val_indices.append(indices)
@@ -228,6 +227,7 @@ class Classifier(pl.LightningModule):
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch[1:-1]  # remove indices and labels
+        # TODO use the labelbinarizer inverse transform to obtain the actual predictions if that is desired
         return self._get_preds(X)
 
     def configure_optimizers(self):
