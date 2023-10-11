@@ -2,7 +2,7 @@ import os
 import pathlib
 import string
 import random
-from typing import List, Tuple, Optional, Union
+from typing import List, Tuple, Optional, Union, Sequence
 
 import dgl
 import numpy as np
@@ -89,8 +89,8 @@ class SynFermDataset(DGLDataset):
         global_featurizer_state_dict_path: Union[str, os.PathLike] = None,
         graph_type: str = "bond_edges",
         featurizers: str = "dgllife",
-        smiles_columns: tuple = ("SMILES",),
-        label_columns: Optional[Tuple[str]] = ("label",),
+        smiles_columns: Sequence = ["SMILES"],
+        label_columns: Optional[List[str]] = ["label"],
         task: str = "binary",
         save_dir: Union[str, os.PathLike] = None,
         force_reload=False,
@@ -132,7 +132,7 @@ class SynFermDataset(DGLDataset):
         self.reaction = reaction
         self.label_columns = label_columns
         self.smiles_columns = smiles_columns
-        self.graph_type = graph_type  # whether to form BE- or BN-graph
+        self.graph_type = graph_type
         self.task = task
         self.label_binarizer = LabelBinarizer()
         self.global_features = []
