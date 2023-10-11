@@ -25,3 +25,9 @@ wandb/
 
 # backup
 *.old
+
+# plots
+notebooks/*.svg
+notebooks/*.png
+notebooks/results_all.csv
+notebooks/results_summary.csv
