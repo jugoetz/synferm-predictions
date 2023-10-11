@@ -6,6 +6,8 @@ import pytorch_lightning as pl
 import torch
 import torchmetrics as tm
 from dgllife.model.gnn.gcn import GCN
+from dgllife.model.gnn.attentivefp import AttentiveFPGNN
+from dgllife.model.gnn.graphsage import GraphSAGE
 
 from src.layer.ffn import FFN
 from src.layer.mpnn import MPNNEncoder
@@ -25,6 +27,10 @@ def load_model(hparams):
         model = DMPNNModel(**hparams)
     elif hparams["name"] == "GCN":
         model = GCNModel(**hparams)
+    elif hparams["name"] == "AttentiveFP":
+        model = AttentiveFPModel(**hparams)
+    elif hparams["name"] == "GraphSAGE":
+        model = GraphSAGEModel(**hparams)
     elif hparams["name"] == "FFN":
         model = FFNModel(**hparams)
     elif hparams["name"] == "GraphAgnostic":
@@ -39,6 +45,10 @@ def load_trained_model(model_type, checkpoint_path):
         model = DMPNNModel.load_from_checkpoint(checkpoint_path)
     elif model_type == "GCN":
         model = GCNModel.load_from_checkpoint(checkpoint_path)
+    elif model_type == "AttentiveFP":
+        model = AttentiveFPModel.load_from_checkpoint(checkpoint_path)
+    elif model_type == "GraphSAGE":
+        model = GraphSAGEModel.load_from_checkpoint(checkpoint_path)
     elif model_type == "FFN":
         model = FFNModel.load_from_checkpoint(checkpoint_path)
     elif model_type == "GraphAgnostic":
@@ -363,6 +373,165 @@ class GCNModel(Classifier):
                 self.hparams["encoder"]["dropout_ratio"]
                 for _ in range(self.hparams["encoder"]["depth"])
             ],
+        )
+
+    def init_pooling(self):
+        if self.hparams["encoder"]["aggregation"] == "attention":
+            return GlobalAttentionPooling(
+                gate_nn=torch.nn.Linear(self.hparams["encoder"]["hidden_size"], 1),
+                ntype="_N",
+                feat="h_v",
+                get_attention=True,
+            )
+        elif self.hparams["encoder"]["aggregation"] == "mean":
+            return AvgPooling(ntype="_N", feat="h_v")
+        elif self.hparams["encoder"]["aggregation"] == "sum":
+            return SumPooling(ntype="_N", feat="h_v")
+        elif self.hparams["encoder"]["aggregation"] == "max":
+            return MaxPooling(ntype="_N", feat="h_v")
+        else:
+            raise ValueError(
+                "Aggregation must be one of ['max', 'mean', 'sum', 'attention']"
+            )
+
+    def init_decoder(self):
+        return FFN(
+            in_size=self.hparams.encoder["hidden_size"]
+            + self.hparams["global_feature_size"],
+            out_size=self.hparams["num_labels"],
+            **self.hparams.decoder,
+        )
+
+    def forward(self, x):
+        graph, global_features = x
+        embedding_before_pooling = self.encoder(graph, graph.ndata["x"])
+        with graph.local_scope():
+            graph.ndata["h_v"] = embedding_before_pooling
+            if self.hparams["encoder"]["aggregation"] == "attention":
+                embedding, attention = self.pooling(graph)
+            else:
+                embedding = self.pooling(graph)
+
+        if self.hparams["global_feature_size"] == 0:
+            y = self.decoder(embedding)
+        else:
+            y = self.decoder(torch.cat((embedding, global_features), dim=1))
+        return y
+
+    def _get_preds(self, batch):
+        y_hat = self(batch)
+        return y_hat
+
+
+class AttentiveFPModel(Classifier):
+    """
+    AttentiveFP model as implemented in DGL-Lifesci.
+
+    Note that this model works on a molecular graph and that its forward method expects a BE-graph input.
+
+    There are some differences in the architecture of dgllife models and my own.
+    Mainly:
+        - dgllife encoder does not take care of pooling
+        - dgllife encoder .forward() needs the feature vector to be passed separately
+        - dgllife encoder expects a homogeneous graph
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pooling = self.init_pooling()
+
+    def init_encoder(self):
+        return AttentiveFPGNN(
+            node_feat_size=self.hparams["atom_feature_size"],
+            edge_feat_size=self.hparams["bond_feature_size"],
+            num_layers=self.hparams["encoder"]["depth"],
+            graph_feat_size=self.hparams["encoder"]["hidden_size"],
+            dropout=self.hparams["encoder"]["dropout_ratio"],
+        )
+
+    def init_pooling(self):
+        if self.hparams["encoder"]["aggregation"] == "attention":
+            return GlobalAttentionPooling(
+                gate_nn=torch.nn.Linear(self.hparams["encoder"]["hidden_size"], 1),
+                ntype="_N",
+                feat="h_v",
+                get_attention=True,
+            )
+        elif self.hparams["encoder"]["aggregation"] == "mean":
+            return AvgPooling(ntype="_N", feat="h_v")
+        elif self.hparams["encoder"]["aggregation"] == "sum":
+            return SumPooling(ntype="_N", feat="h_v")
+        elif self.hparams["encoder"]["aggregation"] == "max":
+            return MaxPooling(ntype="_N", feat="h_v")
+        else:
+            raise ValueError(
+                "Aggregation must be one of ['max', 'mean', 'sum', 'attention']"
+            )
+
+    def init_decoder(self):
+        return FFN(
+            in_size=self.hparams.encoder["hidden_size"]
+            + self.hparams["global_feature_size"],
+            out_size=self.hparams["num_labels"],
+            **self.hparams.decoder,
+        )
+
+    def forward(self, x):
+        graph, global_features = x
+        embedding_before_pooling = self.encoder(
+            graph, graph.ndata["x"], graph.edata["e"]
+        )
+        with graph.local_scope():
+            graph.ndata["h_v"] = embedding_before_pooling
+            if self.hparams["encoder"]["aggregation"] == "attention":
+                embedding, attention = self.pooling(graph)
+            else:
+                embedding = self.pooling(graph)
+
+        if self.hparams["global_feature_size"] == 0:
+            y = self.decoder(embedding)
+        else:
+            y = self.decoder(torch.cat((embedding, global_features), dim=1))
+        return y
+
+    def _get_preds(self, batch):
+        y_hat = self(batch)
+        return y_hat
+
+
+class GraphSAGEModel(Classifier):
+    """
+    GCN model as implemented in DGL-Lifesci.
+
+    Note that this model works on a molecular graph and that its forward method expects a BE-graph input.
+
+    This class has a few hacky elements, due to some differences in the architecture of dgllife models and my own.
+    Mainly:
+        - dgllife encoder does not take care of pooling
+        - dgllife encoder .forward() needs the feature vector to be passed separately
+        - dgllife encoder expects a homogeneous graph
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.pooling = self.init_pooling()
+
+    def init_encoder(self):
+        return GraphSAGE(
+            in_feats=self.hparams["atom_feature_size"],
+            hidden_feats=[
+                self.hparams["encoder"]["hidden_size"]
+                for _ in range(self.hparams["encoder"]["depth"])
+            ],
+            activation=[
+                get_activation(self.hparams["encoder"]["activation"])
+                for _ in range(self.hparams["encoder"]["depth"])
+            ],
+            dropout=[
+                self.hparams["encoder"]["dropout_ratio"]
+                for _ in range(self.hparams["encoder"]["depth"])
+            ],
+            aggregator_type=["mean" for _ in range(self.hparams["encoder"]["depth"])],
         )
 
     def init_pooling(self):

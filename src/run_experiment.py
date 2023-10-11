@@ -37,6 +37,7 @@ def run_training(args, hparams):
     hparams["num_labels"] = data.num_labels
     hparams["label_binarizer"] = data.label_binarizer
     hparams["target_names"] = args.label_columns
+    hparams["data_hash_key"] = data.hash
     if data.global_featurizer_state_dict_path:  # only in case of OHE
         hparams["global_featurizer_state_dict_path"] = str(
             data.global_featurizer_state_dict_path
@@ -86,7 +87,14 @@ def run_training(args, hparams):
     else:
         job_type = "training"
 
-    if hparams["name"] in ["D-MPNN", "GCN", "GraphAgnostic", "FFN"]:
+    if hparams["name"] in [
+        "D-MPNN",
+        "GCN",
+        "AttentiveFP",
+        "GraphSAGE",
+        "FFN",
+        "GraphAgnostic",
+    ]:
         aggregate_metrics, fold_metrics = cross_validate(
             data,
             hparams,

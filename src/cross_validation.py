@@ -95,17 +95,17 @@ def cross_validate(
             batch_size=128,
             shuffle=True,
             collate_fn=collate_fn,
-            num_workers=4,
-            pin_memory=True,
-            persistent_workers=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=False,
         )
         val_dl = DataLoader(
             data_splitted["val"],
             batch_size=128,
             collate_fn=collate_fn,
-            num_workers=4,
-            pin_memory=True,
-            persistent_workers=True,
+            num_workers=0,
+            pin_memory=False,
+            persistent_workers=False,
         )
         test_dls = (
             {
@@ -113,7 +113,7 @@ def cross_validate(
                     v,
                     batch_size=128,
                     collate_fn=collate_fn,
-                    num_workers=4,
+                    num_workers=0,
                     pin_memory=False,
                     persistent_workers=False,
                 )

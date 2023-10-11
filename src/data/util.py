@@ -13,12 +13,29 @@ from rdkit.Chem.rdChemReactions import (
     SanitizeRxn,
     ReactionToSmiles,
 )
+from dgl.data import DGLDataset
 
 from src.util.rdkit_util import (
     create_reaction_instance,
     remove_mapno,
     canonicalize_smiles,
 )
+
+
+def get_data_hash(hash_key):
+    """
+    Obtain the hash from a hash key in the way DGLDataset does it
+
+    The hash key consists of:
+    - reaction (bool)
+    - target_names (list of str)
+    - smiles_columns (list of str)
+    - graph type (str)
+    - task (str)
+    - global features (list of str, e.g. ["None"])
+    - featurizer (str)
+    """
+    return DGLDataset("name", hash_key=hash_key).hash
 
 
 class SLAPReactionGenerator:
