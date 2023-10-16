@@ -1,12 +1,11 @@
 from copy import deepcopy
+from typing import Tuple, List
 
-import numpy as np
-import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torchmetrics as tm
-from dgllife.model.gnn.gcn import GCN
 from dgllife.model.gnn.attentivefp import AttentiveFPGNN
+from dgllife.model.gnn.gcn import GCN
 from dgllife.model.gnn.graphsage import GraphSAGE
 
 from src.layer.ffn import FFN
@@ -19,7 +18,8 @@ from src.layer.pooling import (
     ConcatenateNodeEdgeSumPooling,
 )
 from src.layer.util import get_activation
-from src.util.definitions import PRED_DIR
+from src.model.metrics import BalancedAccuracy
+from src.util.io import save_predictions
 
 
 def load_model(hparams):
@@ -69,18 +69,20 @@ class Classifier(pl.LightningModule):
         self.val_predictions = []
         self.test_indices = []
         self.test_predictions = []
-        average = "micro" if self.hparams["training"]["task"] == "multiclass" else None
-        auroc_average = (
-            "macro" if self.hparams["training"]["task"] == "multiclass" else None
+
+        average = (
+            "micro" if self.hparams["training"]["task"] == "multiclass" else "none"
         )
+
         # TODO there is an upstream problem with torchmetrics
         #  the binary and multilabel accuracies assume they are receiving logits if any value is outside [0,1]
         #  otherwise they assume probabilities.
         #  Of course this is a stupid assumption.
         #  Hopefully soon fixed upstream, see https://github.com/Lightning-AI/torchmetrics/issues/1604
         #  and https://github.com/Lightning-AI/torchmetrics/pull/1676
-        #  meantime "Prinzip Hoffnung"
-        self.metrics = torch.nn.ModuleDict(
+        #  meantime it's either "Prinzip Hoffnung" or converting everything to probabilities to avoid the problem
+
+        metrics = tm.MetricCollection(
             {
                 "accuracy": tm.Accuracy(
                     task=self.hparams["training"]["task"],
@@ -110,8 +112,25 @@ class Classifier(pl.LightningModule):
                     threshold=0.5,  # applies for binary and multilabel
                     average=average,
                 ),
+                "avgPrecision": tm.AveragePrecision(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    average=average,
+                ),
+                "balanced_accuracy": BalancedAccuracy(
+                    task=self.hparams["training"]["task"],
+                    num_labels=kwargs["num_labels"],
+                    num_classes=kwargs["num_labels"],
+                    threshold=0.5,  # applies for binary and multilabel
+                    average=None,  # applies for multilabel
+                ),
             }
         )
+
+        self.train_metrics = metrics.clone(prefix="train/")
+        self.val_metrics = metrics.clone(prefix="val/")
+        self.test_metrics = metrics.clone(prefix="test/")
 
     def init_encoder(self):
         raise NotImplementedError("Child class must implement this method")
@@ -132,10 +151,18 @@ class Classifier(pl.LightningModule):
     def forward(self, x):
         raise NotImplementedError("Child class must implement this method")
 
-    def _get_preds(self, batch):
+    def _get_preds(self, batch) -> torch.FloatTensor:
+        """
+        This method returns prediction logits.
+        Typically, it only wraps the forward() method of the model, but it can contain additional necessary logic to
+        allow for a standard call signature.
+        E.g. the FFN implementation will not pass the graphs to the forward method.
+        """
         raise NotImplementedError("Child class must implement this method")
 
-    def _get_preds_loss_metrics(self, batch, dataloader_idx):
+    def _get_preds_loss(
+        self, batch, return_proba=False
+    ) -> Tuple[List[int], torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         labels = batch[-1]
         indices = batch[0]
         X = batch[1:-1]
@@ -149,13 +176,46 @@ class Classifier(pl.LightningModule):
 
         preds = self._get_preds(X)
 
-        # calculate loss
+        # calculate loss from logits
         loss = self.loss(preds, targets)
 
-        # calculate metrics
-        metrics = {
-            f"{dataloader_idx}/{k}": v(preds, targets) for k, v in self.metrics.items()
-        }
+        # convert logits to probabilities if desired
+        if return_proba:
+            if self.hparams["training"]["task"] == "multiclass":
+                # for multiclass, we apply softmax to get class probabilities
+                preds = torch.softmax(preds, dim=1)
+            else:
+                # for multilabel and binary, we apply sigmoid to get the (label-wise) binary probability for the pos class
+                preds = torch.sigmoid(preds)
+
+        return indices, preds, loss, targets
+
+    def training_step(self, batch, batch_idx):
+        indices, preds, loss, targets = self._get_preds_loss(batch, return_proba=True)
+        self.train_metrics.update(preds, targets.int())
+        self.log("train/loss", loss, on_step=False, on_epoch=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        indices, preds, loss, targets = self._get_preds_loss(batch, return_proba=True)
+        self.val_metrics.update(preds, targets.int())
+        self.log("val/loss", loss, on_step=False, on_epoch=True)
+        self.val_indices.append(indices)
+        self.val_predictions.append(preds)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        indices, preds, loss, targets = self._get_preds_loss(batch, return_proba=True)
+        self.test_metrics.update(preds, targets.int())
+        self.log("test/loss", loss, on_step=False, on_epoch=True)
+        self.test_indices.append(indices)
+        self.test_predictions.append(preds)
+        return loss
+
+    def on_train_epoch_end(self) -> None:
+        # log metrics
+        metrics = self.train_metrics.compute()
+
         # in the multilabel case, we receive metrics for each label
         # we separate them
         if self.hparams["training"]["task"] == "multilabel":
@@ -163,75 +223,62 @@ class Classifier(pl.LightningModule):
                 if len(v) == self.hparams["num_labels"]:
                     for i, c in enumerate(self.hparams["target_names"]):
                         metrics[f"{k}_target_{c}"] = metrics[k][i]
+                    metrics[f"{k}_macro"] = torch.mean(metrics[k])
                     del metrics[k]
 
-        return indices, preds, loss, metrics
-
-    def training_step(self, batch, batch_idx):
-        indices, preds, loss, metrics = self._get_preds_loss_metrics(batch, "train")
-        self.log("train/loss", loss, on_step=False, on_epoch=True)
-        self.log_dict(metrics, on_step=False, on_epoch=True)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        indices, preds, loss, metrics = self._get_preds_loss_metrics(batch, "val")
-        self.log("val/loss", loss, on_step=False, on_epoch=True)
-        self.log_dict(metrics, on_step=False, on_epoch=True)
-        self.val_indices.append(indices)
-        if self.hparams["training"]["task"] == "multiclass":
-            # for multiclass, we apply softmax to get class probabilities
-            self.val_predictions.append(torch.softmax(preds, dim=1))
-        else:
-            # for multilabel and binary, we apply sigmoid to get the (label-wise) binary probability for the pos class
-            self.val_predictions.append(torch.sigmoid(preds))
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        indices, preds, loss, metrics = self._get_preds_loss_metrics(batch, "test")
-        self.log("test/loss", loss, on_step=False, on_epoch=True)
-        self.log_dict(metrics, on_step=False, on_epoch=True)
-        self.test_indices.append(indices)
-        if self.hparams["training"]["task"] == "multiclass":
-            # for multiclass, we apply softmax to get class probabilities
-            self.test_predictions.append(torch.softmax(preds, dim=1))
-        else:
-            # for multilabel and binary, we apply sigmoid to get the (label-wise) binary probability for the pos class
-            self.test_predictions.append(torch.sigmoid(preds))
-        return loss
+        self.log_dict(metrics)
+        # reset metrics
+        self.train_metrics.reset()
 
     def on_validation_epoch_end(self) -> None:
-        filepath = PRED_DIR / self.hparams["run_id"] / "val_preds_last.csv"
-        filepath.parent.mkdir(exist_ok=True, parents=True)
-        ind = np.array([i for ind in self.val_indices for i in ind]).reshape(
-            (-1, 1)
-        )  # shape (n_samples, 1)
-        preds = (
-            torch.concatenate(self.val_predictions).cpu().numpy()
-        )  # shape (n_samples, n_labels)
-        columns = [
-            "idx",
-        ] + [f"pred_{n}" for n in range(preds.shape[1])]
-        pd.DataFrame(np.hstack((ind, preds)), columns=columns).astype(
-            {"idx": "int32"}
-        ).to_csv(filepath, index=False)
+        # log metrics
+        metrics = self.val_metrics.compute()
+
+        # in the multilabel case, we receive metrics for each label
+        # we separate them
+        if self.hparams["training"]["task"] == "multilabel":
+            for k, v in deepcopy(metrics).items():
+                if len(v) == self.hparams["num_labels"]:
+                    for i, c in enumerate(self.hparams["target_names"]):
+                        metrics[f"{k}_target_{c}"] = metrics[k][i]
+                    metrics[f"{k}_macro"] = torch.mean(metrics[k])
+                    del metrics[k]
+
+        self.log_dict(metrics)
+        # reset metrics
+        self.val_metrics.reset()
+
+        # save the predictions
+        save_predictions(
+            self.hparams["run_id"], self.val_indices, self.val_predictions, "val"
+        )
+        # reset stored predictions
         self.val_indices = []
         self.val_predictions = []
 
     def on_test_epoch_end(self) -> None:
-        filepath = PRED_DIR / self.hparams["run_id"] / "test_preds_last.csv"
-        filepath.parent.mkdir(exist_ok=True, parents=True)
-        ind = np.array([i for ind in self.test_indices for i in ind]).reshape(
-            (-1, 1)
-        )  # shape (n_samples, 1)
-        preds = (
-            torch.concatenate(self.test_predictions).cpu().numpy()
-        )  # shape (n_samples, n_labels)
-        columns = [
-            "idx",
-        ] + [f"pred_{n}" for n in range(preds.shape[1])]
-        pd.DataFrame(np.hstack((ind, preds)), columns=columns).astype(
-            {"idx": "int32"}
-        ).to_csv(filepath, index=False)
+        # log metrics
+        metrics = self.test_metrics.compute()
+
+        # in the multilabel case, we receive metrics for each label
+        # we separate them
+        if self.hparams["training"]["task"] == "multilabel":
+            for k, v in deepcopy(metrics).items():
+                if len(v) == self.hparams["num_labels"]:
+                    for i, c in enumerate(self.hparams["target_names"]):
+                        metrics[f"{k}_target_{c}"] = metrics[k][i]
+                    metrics[f"{k}_macro"] = torch.mean(metrics[k])
+                    del metrics[k]
+
+        self.log_dict(metrics)
+        # reset metrics
+        self.test_metrics.reset()
+
+        # save the predictions
+        save_predictions(
+            self.hparams["run_id"], self.test_indices, self.test_predictions, "test"
+        )
+        # reset stored predictions
         self.test_indices = []
         self.test_predictions = []
 
@@ -335,8 +382,7 @@ class DMPNNModel(Classifier):
         return y
 
     def _get_preds(self, batch):
-        y_hat = self(batch)
-        return y_hat
+        return self(batch)
 
 
 class GCNModel(Classifier):
@@ -419,8 +465,7 @@ class GCNModel(Classifier):
         return y
 
     def _get_preds(self, batch):
-        y_hat = self(batch)
-        return y_hat
+        return self(batch)
 
 
 class AttentiveFPModel(Classifier):
@@ -495,8 +540,7 @@ class AttentiveFPModel(Classifier):
         return y
 
     def _get_preds(self, batch):
-        y_hat = self(batch)
-        return y_hat
+        return self(batch)
 
 
 class GraphSAGEModel(Classifier):
@@ -578,8 +622,7 @@ class GraphSAGEModel(Classifier):
         return y
 
     def _get_preds(self, batch):
-        y_hat = self(batch)
-        return y_hat
+        return self(batch)
 
 
 class FFNModel(Classifier):
@@ -607,8 +650,7 @@ class FFNModel(Classifier):
 
     def _get_preds(self, batch):
         _, global_features_batch = batch
-        y_hat = self(global_features_batch)
-        return y_hat
+        return self(global_features_batch)
 
 
 class GraphAgnosticModel(Classifier):
@@ -644,5 +686,4 @@ class GraphAgnosticModel(Classifier):
         return y
 
     def _get_preds(self, batch):
-        y_hat = self(batch)
-        return y_hat
+        return self(batch)

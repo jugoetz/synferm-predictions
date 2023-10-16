@@ -344,6 +344,8 @@ class SynFermDataset(DGLDataset):
             self.labels = torch.tensor(
                 self.label_binarizer.fit_transform(labels), dtype=torch.float32
             )
+            # the loss from torch needs float input.
+            # The metrics from torchmetrics will need int input, so we have to convert that later.
 
         else:
             # if no labels are given (for inference), provide uninitialized tensor of shape (n_samples, 1)

@@ -1,4 +1,5 @@
 from collections import defaultdict
+import warnings
 
 import numpy as np
 import torch
@@ -9,6 +10,9 @@ from src.data.dataloader import collate_fn
 from src.train import train, train_sklearn
 from src.util.io import index_from_file
 from src.util.logging import generate_run_id
+
+# silence PytorchLightning's warning about DataLoader with num_workers=0, which we set deliberately.
+warnings.filterwarnings("ignore", ".*does not have many workers.*")
 
 
 def cross_validate(
@@ -140,7 +144,7 @@ def cross_validate(
         for k, v in fold_metrics.items():
             metrics[k].append(v)  # append fold metrics to list
 
-    # aggregate fold metrics
+    # aggregate fold metrics over all folds
     # stack tensors, but remove underscore metrics (timestamp etc.)
     metrics = {k: torch.stack(v) for k, v in metrics.items() if not k.startswith("_")}
     # statistics on all folds
@@ -265,16 +269,13 @@ def cross_validate_sklearn(
         for k, v in fold_metrics.items():
             metrics[k][i] = v  # insert fold metrics into array
 
-    # aggregate fold metrics (aggregation is not possible for all of them. E.g. makes no sense to aggregate roc curves)
+    # aggregate fold metrics over all folds
     aggregated_metrics = {}
     for k, v in metrics.items():
-        if k.endswith(
-            ("precision", "recall", "f1", "accuracy", "roc_auc", "loss")
-        ):  # these are the metrics that can be aggregated
-            aggregated_metrics[k + "_mean"], aggregated_metrics[k + "_std"] = (
-                v.mean(),
-                v.std(),
-            )
+        aggregated_metrics[k + "_mean"], aggregated_metrics[k + "_std"] = (
+            v.mean(),
+            v.std(),
+        )
 
     if return_fold_metrics:
         return aggregated_metrics, metrics

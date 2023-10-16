@@ -1,7 +1,14 @@
-import yaml
 import pathlib
 import re
 from collections import defaultdict
+from typing import Iterable, Union, Tuple, List
+
+import numpy as np
+import pandas as pd
+import torch
+import yaml
+
+from src.util.definitions import PRED_DIR
 
 
 def index_from_file(path):
@@ -55,3 +62,24 @@ def walk_split_directory(directory: pathlib.Path):
             pass
     # instead of the defaultdict, we return a list. We sort by dict key to ensure the list is in fold order.
     return [i[1] for i in sorted(split_indices.items())]
+
+
+def save_predictions(
+    run_id: str,
+    indices: Iterable[Iterable[int]],
+    preds: Union[List[torch.Tensor], Tuple[torch.Tensor]],
+    dataloader_idx: str,
+):
+    # save the predictions
+    filepath = PRED_DIR / run_id / f"{dataloader_idx}_preds_last.csv"
+    filepath.parent.mkdir(exist_ok=True, parents=True)
+    ind = np.array([i for ind in indices for i in ind]).reshape(
+        (-1, 1)
+    )  # shape (n_samples, 1)
+    preds = torch.concatenate(preds).cpu().numpy()  # shape (n_samples, n_labels)
+    columns = [
+        "idx",
+    ] + [f"pred_{n}" for n in range(preds.shape[1])]
+    pd.DataFrame(np.hstack((ind, preds)), columns=columns).astype(
+        {"idx": "int32"}
+    ).to_csv(filepath, index=False)

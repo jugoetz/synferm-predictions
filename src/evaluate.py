@@ -60,7 +60,7 @@ def calculate_metrics(y_true, y_prob, task, label_names=None):
             )
             metrics[f"accuracy_target_{s}"] = accuracy_score(y_true[:, i], y_pred[:, i])
             metrics[f"balanced_accuracy_target_{s}"] = balanced_accuracy_score(
-                y_true[:, 1], y_pred[:, i]
+                y_true[:, i], y_pred[:, i]
             )
             metrics[f"auroc_target_{s}"] = roc_auc_score(y_true[:, i], y_prob[:, i])
             metrics[f"loss_target_{s}"] = log_loss(y_true[:, i], y_prob[:, i])

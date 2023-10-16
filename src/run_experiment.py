@@ -124,7 +124,7 @@ def run_training(args, hparams):
         raise ValueError(f"Unknown model type {hparams['name']}")
     if args.hparam_optimization:
         print(f"Optimized hyperparameters: {hparams}")
-    print(f"Aggregate metrics:")
+    print("Metrics aggregated over all splits:")
     for k, v in aggregate_metrics.items():
         print(f"{k}: {v}")
 
