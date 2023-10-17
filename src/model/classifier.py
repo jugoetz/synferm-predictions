@@ -212,6 +212,11 @@ class Classifier(pl.LightningModule):
         self.test_predictions.append(preds)
         return loss
 
+    def on_train_epoch_start(self) -> None:
+        # we do this on start instead of end so that the last state will be available in the trained model
+        # reset metrics
+        self.train_metrics.reset()
+
     def on_train_epoch_end(self) -> None:
         # log metrics
         metrics = self.train_metrics.compute()
@@ -227,8 +232,14 @@ class Classifier(pl.LightningModule):
                     del metrics[k]
 
         self.log_dict(metrics)
+
+    def on_validation_epoch_start(self) -> None:
+        # reset stored predictions
+        # we do this on start instead of end so that the last state will be available in the trained model
+        self.val_indices = []
+        self.val_predictions = []
         # reset metrics
-        self.train_metrics.reset()
+        self.val_metrics.reset()
 
     def on_validation_epoch_end(self) -> None:
         # log metrics
@@ -245,16 +256,19 @@ class Classifier(pl.LightningModule):
                     del metrics[k]
 
         self.log_dict(metrics)
-        # reset metrics
-        self.val_metrics.reset()
 
         # save the predictions
         save_predictions(
             self.hparams["run_id"], self.val_indices, self.val_predictions, "val"
         )
+
+    def on_test_epoch_start(self) -> None:
         # reset stored predictions
-        self.val_indices = []
-        self.val_predictions = []
+        # we do this on start instead of end so that the last state will be available in the trained model
+        self.test_indices = []
+        self.test_predictions = []
+        # reset metrics
+        self.test_metrics.reset()
 
     def on_test_epoch_end(self) -> None:
         # log metrics
@@ -271,16 +285,11 @@ class Classifier(pl.LightningModule):
                     del metrics[k]
 
         self.log_dict(metrics)
-        # reset metrics
-        self.test_metrics.reset()
 
         # save the predictions
         save_predictions(
             self.hparams["run_id"], self.test_indices, self.test_predictions, "test"
         )
-        # reset stored predictions
-        self.test_indices = []
-        self.test_predictions = []
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         X = batch[1:-1]  # remove indices and labels

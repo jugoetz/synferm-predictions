@@ -1,12 +1,11 @@
-from copy import deepcopy
-
 import numpy as np
+import torch
 from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
     accuracy_score,
-    roc_auc_score,
+    average_precision_score,
     log_loss,
     balanced_accuracy_score,
 )
@@ -37,12 +36,17 @@ def calculate_metrics(y_true, y_prob, task, label_names=None):
         metrics["precision"] = precision_score(y_true, y_pred)
         metrics["accuracy"] = accuracy_score(y_true, y_pred)
         metrics["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
-        metrics["auroc"] = roc_auc_score(y_true, y_prob[:, 1])
         metrics["loss"] = log_loss(y_true, y_prob[:, 1])
+        metrics[f"avgPrecision"] = average_precision_score(y_true, y_prob[:, 1])
 
     elif task == "multilabel":
-        # sklearn's multilabel predictions arrive as a list of numpy arrays
-        y_prob = np.stack([y[:, 1] for y in y_prob], axis=1)
+        if isinstance(y_prob, list):
+            # sklearn's multilabel predictions arrive as a list of numpy arrays
+            # we cut the (redundant) prediction of the negative class
+            y_prob = np.stack([y[:, 1] for y in y_prob], axis=1)
+        elif isinstance(y_prob, torch.Tensor):
+            # if we receive a torch.Tensor, convert it to numpy array
+            y_prob = y_prob.numpy()
         y_pred = (y_prob > 0.5).astype(np.int32)
         y_true = np.array(y_true).astype(
             np.int32
@@ -62,11 +66,12 @@ def calculate_metrics(y_true, y_prob, task, label_names=None):
             metrics[f"balanced_accuracy_target_{s}"] = balanced_accuracy_score(
                 y_true[:, i], y_pred[:, i]
             )
-            metrics[f"auroc_target_{s}"] = roc_auc_score(y_true[:, i], y_prob[:, i])
             metrics[f"loss_target_{s}"] = log_loss(y_true[:, i], y_prob[:, i])
-
-        metrics["f1_micro"] = f1_score(y_true, y_pred, average="micro")
-        metrics["recall_macro"] = precision_score(y_true, y_pred, average="macro")
+            metrics[f"avgPrecision_target_{s}"] = average_precision_score(
+                y_true[:, i], y_prob[:, i], average=None
+            )
+        metrics["f1_macro"] = f1_score(y_true, y_pred, average="macro")
+        metrics["recall_macro"] = recall_score(y_true, y_pred, average="macro")
         metrics["precision_macro"] = precision_score(y_true, y_pred, average="macro")
         metrics["accuracy_macro"] = np.mean(
             [v for k, v in metrics.items() if k.startswith("accuracy_target_")]
@@ -74,7 +79,10 @@ def calculate_metrics(y_true, y_prob, task, label_names=None):
         metrics["balanced_accuracy_macro"] = np.mean(
             [v for k, v in metrics.items() if k.startswith("balanced_accuracy_target_")]
         )
-        metrics["auroc_macro"] = roc_auc_score(y_true, y_prob, average="macro")
+        metrics[f"avgPrecision_macro"] = average_precision_score(
+            y_true, y_prob, average="macro"
+        )
+
         metrics["loss"] = np.mean(
             [v for k, v in metrics.items() if k.startswith("loss_target_")]
         )
