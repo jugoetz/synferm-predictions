@@ -126,6 +126,13 @@ if __name__ == "__main__":
         help="Type of classification task",
     )
 
+    train_parser.add_argument(
+        "--experiment-id",
+        type=str,
+        default=None,
+        help="Experiment identifier. For hyperparameter sweeps, this applies to the whole sweep and best hyperparameter experiment. For cross-validation, this applies to all folds. ",
+    )
+
     # predict parser
     predict_parser = subparsers.add_parser("predict", parents=[parent_parser])
     predict_parser.add_argument(
@@ -146,17 +153,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # parse configuration file
-    config = get_config(args.config)
+    hparams = get_config(args.config)
 
     # overwrite some typically changed hparams with command line arguments
     # slightly unintuitive:
     #   Checking for None works here because argparse will parse "None" as a string, which makes it not None
     if args.global_features:
-        config["decoder"]["global_features"] = args.global_features
+        hparams["decoder"]["global_features"] = args.global_features
     if args.global_features_file:
-        config["decoder"]["global_features_file"] = args.global_features_file
+        hparams["decoder"]["global_features_file"] = args.global_features_file
     if args.task:
-        config["training"]["task"] = args.task
+        hparams["training"]["task"] = args.task
+    if args.experiment_id:
+        hparams["experiment_id"] = args.experiment_id
 
     # set wandb online/offline
     if args.wandb_offline:
@@ -164,4 +173,4 @@ if __name__ == "__main__":
     else:
         os.environ["WANDB_MODE"] = "online"
 
-    args.func(args, config)
+    args.func(args, hparams)
