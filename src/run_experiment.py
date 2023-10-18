@@ -61,10 +61,11 @@ def run_training(args, hparams):
             "One of `--split-indices`, `--cv`, or `--train-size` must be given."
         )
 
-    job_type = None
+    job_type = args.overwrite_job_type
     # run hyperparameter optimization if requested
     if args.hparam_optimization:
-        job_type = "hparam_optimization"
+        if job_type is None:
+            job_type = "hparam_optimization"
         # run bayesian hparam optimization
         hparams = optimize_hyperparameters_bayes(
             data=data,
@@ -84,7 +85,7 @@ def run_training(args, hparams):
     # run cross-validation with preconfigured or optimized hparams
     if job_type == "hparam_optimization":
         job_type = "hparam_best"
-    else:
+    elif job_type is None:
         job_type = "training"
 
     if hparams["name"] in [

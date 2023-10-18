@@ -130,7 +130,17 @@ if __name__ == "__main__":
         "--experiment-id",
         type=str,
         default=None,
-        help="Experiment identifier. For hyperparameter sweeps, this applies to the whole sweep and best hyperparameter experiment. For cross-validation, this applies to all folds. ",
+        help="Experiment identifier. For hyperparameter sweeps, this applies to the whole sweep and best "
+        "hyperparameter experiment. For cross-validation, this applies to all folds. ",
+    )
+
+    train_parser.add_argument(
+        "--overwrite-job-type",
+        type=str,
+        default=None,
+        help="Overwrite the job_type that is set internally. "
+        "Intended to allow passing 'hparam_best' as job_type, if the this job has to be repeated without "
+        "optimizing hyperparameters again.",
     )
 
     # predict parser
