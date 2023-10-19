@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 import yaml
 
-from src.util.definitions import PRED_DIR
+from src.util.definitions import PRED_DIR, LOG_DIR
 
 
 def index_from_file(path):
@@ -83,3 +83,9 @@ def save_predictions(
     pd.DataFrame(np.hstack((ind, preds)), columns=columns).astype(
         {"idx": "int32"}
     ).to_csv(filepath, index=False)
+
+
+def save_best_hparams(hparams: dict, experiment_id: str) -> None:
+    filepath = LOG_DIR / "hyperparameters" / f"{experiment_id}.csv"
+    df = pd.json_normalize(hparams)
+    df.to_csv(filepath, index=False)

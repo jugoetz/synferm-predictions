@@ -3,7 +3,7 @@ from copy import deepcopy
 from ax.service.managed_loop import optimize
 
 from src.cross_validation import cross_validate, cross_validate_sklearn
-from src.util.io import get_hparam_bounds
+from src.util.io import get_hparam_bounds, save_best_hparams
 
 
 def update_hyperparameters(hparams, update_params):
@@ -167,6 +167,17 @@ def optimize_hyperparameters_bayes(
         total_trials=n_iter,
         minimize=True,
     )
+
+    try:
+        save_best_hparams(best_parameters, hparams["experiment_id"])
+    except KeyError as e:
+        save_best_hparams(best_parameters, "temp")
+        print(
+            "An 'experiment_id' should be given when performing hyperparameter search. "
+            "Best hyperparameters have been saved to file temp.csv now, which may be overwritten in the future."
+            "Change the filename before running more experiments to prevent this."
+        )
+        print(f"Original error leading to this message: {e}")
 
     best_hparams = update_hyperparameters(hparams, best_parameters)
 

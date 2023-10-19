@@ -173,7 +173,11 @@ if __name__ == "__main__":
     if args.global_features_file:
         hparams["decoder"]["global_features_file"] = args.global_features_file
     if args.task:
-        hparams["training"]["task"] = args.task
+        try:
+            hparams["training"]["task"] = args.task
+        except KeyError:
+            hparams["training"] = {}
+            hparams["training"]["task"] = args.task
     if args.experiment_id:
         hparams["experiment_id"] = args.experiment_id
 
