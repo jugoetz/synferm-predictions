@@ -1,3 +1,4 @@
+import os
 import pathlib
 import re
 from collections import defaultdict
@@ -11,7 +12,7 @@ import yaml
 from src.util.definitions import PRED_DIR, LOG_DIR
 
 
-def index_from_file(path):
+def index_from_file(path: Union[str, os.PathLike]) -> List[int]:
     """
     Load a list of newline-separated integer indices from a file.
 
@@ -28,14 +29,14 @@ def index_from_file(path):
     return indices
 
 
-def get_hparam_bounds(path):
+def get_hparam_bounds(path: Union[str, os.PathLike]) -> dict:
     """Read hyperparameter bounds from a yaml file"""
     with open(path, "r") as file:
         bounds = yaml.safe_load(file)
     return bounds
 
 
-def walk_split_directory(directory: pathlib.Path):
+def walk_split_directory(directory: pathlib.Path) -> List[dict]:
     """
     Walk a directory containing csv files to identify all split files therein.
     We expect the naming convention `fold<fold_nr>_<train/val/test>.csv`.
@@ -70,6 +71,15 @@ def save_predictions(
     preds: Union[List[torch.Tensor], Tuple[torch.Tensor]],
     dataloader_idx: str,
 ):
+    """
+    Save predictions to disk
+
+    Args:
+        run_id (str): Unique identifier of the run
+        indices (Iterable): Indices for the predictions, e.g. [[1],[2],[3|,[4],...] or corresponding long-format vector.
+        preds (list or tuple): List or tuple of tensors
+        dataloader_idx (str): Index of the Dataloader, e.g. "train", "val", "test"
+    """
     # save the predictions
     filepath = PRED_DIR / run_id / f"{dataloader_idx}_preds_last.csv"
     filepath.parent.mkdir(exist_ok=True, parents=True)
@@ -85,7 +95,29 @@ def save_predictions(
     ).to_csv(filepath, index=False)
 
 
+def read_predictions(run_id: str, dataloader_idx: str) -> pd.DataFrame:
+    """
+    Read predictions from disk
+
+    Args:
+        run_id (str): Unique identifier of the run
+        dataloader_idx (str): Index of the Dataloader, e.g. "train", "val", "test"
+
+    Returns:
+        pd.DataFrame: Dataframe one column per label and original data set indices
+    """
+    filepath = PRED_DIR / run_id / f"{dataloader_idx}_preds_last.csv"
+    return pd.read_csv(filepath, index_col="idx")
+
+
 def save_best_hparams(hparams: dict, experiment_id: str) -> None:
+    """
+    Save best hyperparameters to disk
+
+    Args:
+        hparams (dict): Best hyperparameters
+        experiment_id (str): Unique identifier that will be used as part of the filename
+    """
     filepath = LOG_DIR / "hyperparameters" / f"{experiment_id}.csv"
     df = pd.json_normalize(hparams)
     df.to_csv(filepath, index=False)
