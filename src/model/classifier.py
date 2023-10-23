@@ -65,6 +65,8 @@ class Classifier(pl.LightningModule):
         self.encoder = self.init_encoder()
         self.decoder = self.init_decoder()
         self.loss = self.init_loss()
+        self.train_indices = []
+        self.train_predictions = []
         self.val_indices = []
         self.val_predictions = []
         self.test_indices = []
@@ -194,6 +196,8 @@ class Classifier(pl.LightningModule):
         indices, preds, loss, targets = self._get_preds_loss(batch, return_proba=True)
         self.train_metrics.update(preds, targets.int())
         self.log("train/loss", loss, on_step=False, on_epoch=True)
+        self.train_indices.append(indices)
+        self.train_predictions.append(preds.detach())
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -213,7 +217,10 @@ class Classifier(pl.LightningModule):
         return loss
 
     def on_train_epoch_start(self) -> None:
+        # reset stored predictions
         # we do this on start instead of end so that the last state will be available in the trained model
+        self.train_indices = []
+        self.train_predictions = []
         # reset metrics
         self.train_metrics.reset()
 
@@ -232,6 +239,11 @@ class Classifier(pl.LightningModule):
                     del metrics[k]
 
         self.log_dict(metrics)
+
+        # save the predictions
+        save_predictions(
+            self.hparams["run_id"], self.train_indices, self.train_predictions, "train"
+        )
 
     def on_validation_epoch_start(self) -> None:
         # reset stored predictions
@@ -584,7 +596,10 @@ class GraphSAGEModel(Classifier):
                 self.hparams["encoder"]["dropout_ratio"]
                 for _ in range(self.hparams["encoder"]["depth"])
             ],
-            aggregator_type=["mean" for _ in range(self.hparams["encoder"]["depth"])],
+            aggregator_type=[
+                self.hparams["encoder"]["aggregator_type"]
+                for _ in range(self.hparams["encoder"]["depth"])
+            ],
         )
 
     def init_pooling(self):
