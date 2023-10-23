@@ -29,5 +29,4 @@ wandb/
 # plots
 notebooks/*.svg
 notebooks/*.png
-notebooks/results_all.csv
-notebooks/results_summary.csv
+notebooks/results/
