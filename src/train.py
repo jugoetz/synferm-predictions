@@ -10,6 +10,7 @@ from src.model.classifier import load_model
 from src.model.sklearnmodels import load_sklearn_model
 from src.util.definitions import LOG_DIR, CKPT_DIR
 from src.util.logging import generate_run_id, concatenate_to_dict_keys, project_name
+from src.util.io import save_predictions
 
 
 def train(
@@ -203,6 +204,8 @@ def train_sklearn(
         ),
         prefix="train/",
     )
+    # save training predictions
+    save_predictions(run_id, train_idx, train_pred, "train")
 
     # evaluate on validation set
     val_pred = model.predict_proba(val_global_features)
@@ -215,6 +218,8 @@ def train_sklearn(
         ),
         prefix="val/",
     )
+    # save val predictions
+    save_predictions(run_id, val_idx, val_pred, "val")
 
     # logging metrics
     metrics = {}
@@ -246,6 +251,8 @@ def train_sklearn(
                     f"{k}/",
                 )
             )
+            # save test predictions
+            save_predictions(run_id, test_idx, test_pred, "test")
 
         # add to logging metrics
         metrics.update(test_metrics)
