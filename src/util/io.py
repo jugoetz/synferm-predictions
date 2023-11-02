@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Iterable, Union, Tuple, List
 
 import numpy as np
+from numpy.typing import NDArray
 import pandas as pd
 import torch
 import yaml
@@ -67,8 +68,8 @@ def walk_split_directory(directory: pathlib.Path) -> List[dict]:
 
 def save_predictions(
     run_id: str,
-    indices: Iterable[Iterable[int]],
-    preds: Union[List[torch.Tensor], Tuple[torch.Tensor]],
+    indices: Union[Iterable[int], Iterable[Iterable[int]]],
+    preds: Union[List[torch.Tensor], Tuple[torch.Tensor], NDArray],
     dataloader_idx: str,
 ):
     """
@@ -76,17 +77,26 @@ def save_predictions(
 
     Args:
         run_id (str): Unique identifier of the run
-        indices (Iterable): Indices for the predictions, e.g. [[1],[2],[3|,[4],...] or corresponding long-format vector.
-        preds (list or tuple): List or tuple of tensors
+        indices (Iterable): Indices for the predictions, e.g. [[1],[2],[3|,[4],...] or corresponding long-format vector
+            or flat list/iterable.
+        preds (list or tuple or array): List or tuple of tensors, or a numpy array
         dataloader_idx (str): Index of the Dataloader, e.g. "train", "val", "test"
     """
     # save the predictions
     filepath = PRED_DIR / run_id / f"{dataloader_idx}_preds_last.csv"
     filepath.parent.mkdir(exist_ok=True, parents=True)
-    ind = np.array([i for ind in indices for i in ind]).reshape(
-        (-1, 1)
-    )  # shape (n_samples, 1)
-    preds = torch.concatenate(preds).cpu().numpy()  # shape (n_samples, n_labels)
+    ind = np.array(indices).reshape((-1, 1))  # shape (n_samples, 1)
+    if not isinstance(preds, np.ndarray):
+        if isinstance(preds[0], np.ndarray):
+            # sklearn's multilabel predictions arrive as a list of numpy arrays
+            # we cut the (redundant) prediction of the negative class
+            preds = np.stack([y[:, 1] for y in preds], axis=1)
+        elif torch.is_tensor(preds[0]):
+            preds = (
+                torch.concatenate(preds).cpu().numpy()
+            )  # shape (n_samples, n_labels)
+        else:
+            raise ValueError(f"Unexpected input type for argument preds: {type(preds)}")
     columns = [
         "idx",
     ] + [f"pred_{n}" for n in range(preds.shape[1])]
