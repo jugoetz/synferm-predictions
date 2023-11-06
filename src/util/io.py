@@ -85,7 +85,12 @@ def save_predictions(
     # save the predictions
     filepath = PRED_DIR / run_id / f"{dataloader_idx}_preds_last.csv"
     filepath.parent.mkdir(exist_ok=True, parents=True)
-    ind = np.array(indices).reshape((-1, 1))  # shape (n_samples, 1)
+    try:  # works if indices is a nested iterable
+        ind = np.array([i for ind in indices for i in ind]).reshape(
+            (-1, 1)
+        )  # shape (n_samples, 1)
+    except TypeError:  # indices is a flat iterable
+        ind = np.array(indices).reshape((-1, 1))  # shape (n_samples, 1)
     if not isinstance(preds, np.ndarray):
         if isinstance(preds[0], np.ndarray):
             # sklearn's multilabel predictions arrive as a list of numpy arrays
