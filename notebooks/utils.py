@@ -41,6 +41,20 @@ class BodeColorPalette:
 
 
 def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}):
+    """
+    Get runs from the WandB API.
+
+    Args:
+        project (str): Project name on WandB (default: jugoetz/synferm-predictions)
+        filters (dict): MongoDB-style filters to apply to runs
+
+    Returns:
+        summary_list (list): Summary of metrics
+        config_list (list): Summary of hyperparameters
+        tag_list (list): Tags given to the runs
+        name_list (list): Names of the runs
+    """
+
     api = wandb.Api()
     runs = api.runs(project, filters=filters)
     summary_list, config_list, name_list, tag_list = [], [], [], []
