@@ -1,4 +1,5 @@
 import seaborn as sns
+import wandb
 
 
 class BodeColorPalette:
@@ -37,3 +38,26 @@ class BodeColorPalette:
     oranges = sns.color_palette(palette=_oranges, n_colors=6)
     dark = sns.color_palette(palette=[_blues[0], _oranges[0], _blacks[0]], n_colors=3)
     light = sns.color_palette(palette=[_blues[4], _oranges[5]], n_colors=2)
+
+
+def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}):
+    api = wandb.Api()
+    runs = api.runs(project, filters=filters)
+    summary_list, config_list, name_list, tag_list = [], [], [], []
+    for run in runs:
+        # .summary contains output keys/values for
+        # metrics such as accuracy.
+        #  We call ._json_dict to omit large files
+        summary_list.append(run.summary._json_dict)
+
+        # .config contains the hyperparameters.
+        #  We remove special values that start with _.
+        config_list.append(
+            {k: v for k, v in run.config.items() if not k.startswith("_")}
+        )
+
+        tag_list.append(tuple(run.tags))  # tuple b/c we will need to hash it later
+
+        # .name is the human-readable name of the run.
+        name_list.append(run.name)
+    return summary_list, config_list, tag_list, name_list
