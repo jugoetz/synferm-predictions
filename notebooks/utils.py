@@ -55,7 +55,7 @@ def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}):
         name_list (list): Names of the runs
     """
 
-    api = wandb.Api()
+    api = wandb.Api(timeout=29)
     runs = api.runs(project, filters=filters)
     summary_list, config_list, name_list, tag_list = [], [], [], []
     for run in runs:
