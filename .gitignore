@@ -1,8 +1,8 @@
 .ipynb_checkpoints/
 
 config/*
-!config/config.yaml
-!config/hparam_bounds.yaml
+!config/config_example.yaml
+!config/hparam_bounds_example.yaml
 
 data/*
 !data/example_split

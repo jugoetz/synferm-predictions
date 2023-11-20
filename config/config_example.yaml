@@ -1,0 +1,42 @@
+# configuration file
+# settings are overwritten by command-line arguments
+# this is meant for model specific settings, e.g. encoder depth,
+# and I recommend one file per model architecture, deleting or adding entries as needed
+
+name: D-MPNN  # str, options: {D-MPNN, GCN, FFN, XGB, LogisticRegression, GraphAgnostic, AttentiveFP, GraphSAGE}.
+accelerator: gpu  # usually cpu or gpu.
+
+encoder:
+  reaction: True  # bool, whether input data contains a reaction or a molecule (e.g. intermediate or product)
+  graph_type: bond_nodes  # str, options: {bond_edges, bond_nodes}. If bond_edges, build graph where atoms->nodes and
+  # bonds->edges. If bond_nodes, both atoms and bonds are encoded as edges.
+  featurizers: custom  # str, featurizers to use for atom and bond features. Options: {dgllife, chemprop, custom}
+  hidden_size: 300  # int, size of hidden layers
+  depth: 3  # int, >= 3, number of linear layers
+  bias: False  # bool, whether to add bias to linear layers
+  dropout_ratio: 0  # float, probability of dropout
+  aggregation: sum  # str, options: {max, mean, sum, attention}. Operation to aggregate node-centred feature vectors for graph
+  activation: ReLU  # str, any activation from torch.nn can be used
+
+decoder:
+  global_features:  # list of str, options: {"RDKit", "FP", "OHE", "fromFile", None}. Global features to include with the graphs.
+    - None
+  global_features_file: None # str, path to file containing global features. Only used if "fromFile" in global_features.
+  hidden_size: 32  # int, size of hidden layers
+  depth: 2  # int >= 1, number of hidden layers (note the difference to encoder.depth which is defined as number of linear layers)
+  dropout_ratio: 0  # float, probability of dropout
+  activation: ReLU  # str, any activation from torch.nn can be used
+  hidden_bias: False  # bool, whether to add bias to hidden layers
+  out_bias: False  # bool, whether to add bias to output layer
+
+optimizer:
+  weight_decay: 0  # float, weight decay for the optimizer
+  lr: 0.0001  # float, maximum learning rate
+  lr_scheduler:
+    epochs: 100  # int, probably you will want this to be equal to training.max_epochs
+    lr_min: 0.00001  # float, minimum learning rate
+    lr_warmup_step: 2  # int, number of epochs to warm up the learning rate from minimum to maximum
+    scheduler_name: exp_with_linear_warmup  # str, see PytorchLightning documentation for other options
+
+training:
+  max_epochs: 100  # int, number of epochs to train for
