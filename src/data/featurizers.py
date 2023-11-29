@@ -30,9 +30,11 @@ from rdkit.Chem import Mol, MolFromSmiles
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import ConvertToNumpyArray
 
-from src.util.rdkit_util import canonicalize_smiles
-
-# TODO we might want additional featurizers that use properties, e.g. FOMO energies
+from src.util.rdkit_util import (
+    canonicalize_smiles,
+    desalt_building_block,
+    remove_monomer_pg_chirality,
+)
 
 
 class SynFermAtomFeaturizer(BaseAtomFeaturizer):
@@ -401,7 +403,7 @@ class OneHotEncoder:
         Initialize a new dimension in the encoder.
 
         Expects a list of SMILES strings that are all options for the new dimension.
-        SMILES will be canonicalized before being added to the encoder.
+        SMILES will be canonicalized, desalted and stereo information on the protecting group will be removed before adding to the encoder.
 
         Args:
             smiles (list): List of SMILES strings.
@@ -410,7 +412,9 @@ class OneHotEncoder:
         class_values = {}
         for smi in smiles:
             # canonicalize
-            canonical_smiles = canonicalize_smiles(smi)
+            canonical_smiles = Chem.MolToSmiles(
+                remove_monomer_pg_chirality(desalt_building_block(smi))
+            )
             # check if the smiles is already in the dictionary
             if canonical_smiles not in class_values.keys():
                 # if not, add
@@ -438,7 +442,9 @@ class OneHotEncoder:
 
         for dimension, smi in enumerate(smiles):
             # canonicalize the smiles
-            canonical_smiles = canonicalize_smiles(smi)
+            canonical_smiles = Chem.MolToSmiles(
+                remove_monomer_pg_chirality(desalt_building_block(smi))
+            )
             # get the one-hot index
             one_hot_index = self.classes[dimension][canonical_smiles]
             # get the one-hot vector
