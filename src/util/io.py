@@ -49,7 +49,7 @@ def walk_split_directory(directory: pathlib.Path) -> List[dict]:
         list: List of dictionaries where the i-th list element represents the i-th fold.
     """
     split_indices = defaultdict(dict)
-    name_regex = re.compile(r"fold(\d+)_(\w*).csv")
+    name_regex = re.compile(r"fold(\d+)_(train|val|test)\.csv")
 
     for file in directory.iterdir():
         try:
