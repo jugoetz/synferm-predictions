@@ -1,6 +1,48 @@
+import warnings
+from typing import Union
+
 from rdkit import Chem
 from rdkit.Chem import Draw, rdChemReactions
+from rdkit.Chem.SaltRemover import SaltRemover
 from rdkit.Chem.rdchem import Mol
+
+
+def desalt_building_block(mol: Union[str, Chem.Mol]) -> Chem.Mol:
+    def deprotonate_nitrogen(mol):
+        """Remove a proton from ammonium species"""
+        mol.UpdatePropertyCache()
+        patt = Chem.MolFromSmarts(
+            "[#7+;H1,H2,H3,h1,h2,h3]"
+        )  # this pattern matches positive N with at least one proton attached
+        try:
+            idx = mol.GetSubstructMatches(patt)[0][
+                0
+            ]  # this raises IndexError if patt is not found
+            atom = mol.GetAtomWithIdx(idx)  # get the atom index of the charged N
+            atom.SetFormalCharge(0)
+            """
+            If H are explicit, we have to do explicit removal. If they are implicit, calling UpdatePropertyCache() suffices
+            """
+            n_hyd = atom.GetNumExplicitHs()
+            if n_hyd > 0:
+                n_hyd -= 1
+                atom.SetNumExplicitHs(n_hyd)
+            mol.UpdatePropertyCache()
+        except IndexError:
+            pass
+
+        return None
+
+    if isinstance(mol, str):
+        mol = Chem.MolFromSmiles(mol)
+    else:
+        mol = Chem.Mol(mol)
+    # desalt the building block library
+    remover = SaltRemover()
+    mol_desalt = remover.StripMol(mol)
+    # neutralize ammoniums
+    deprotonate_nitrogen(mol_desalt)
+    return mol_desalt
 
 
 def canonicalize_smiles(smiles: str, remove_explicit_H: bool = False) -> str:
@@ -84,6 +126,7 @@ def create_reaction_instance(rxn, reactants):
     Create an instance of a reaction, given reactants, and map all atoms that end up in the product(s).
     This is adapted from Greg's code in https://github.com/rdkit/rdkit/issues/1269#issuecomment-275228746,
     but extended to map the side chains as well.
+    Copied from https://github.com/jugoetz/slap-platform-predict/blob/5acb77ff4fdc412f7fd03a8226a4635e086978d7/src/util/rdkit_util.py#L82
     Note that atoms that are not present in the product (unbalanced reaction equation) will not be annotated.
     """
 
@@ -160,9 +203,19 @@ def create_reaction_instance(rxn, reactants):
     return mapped_reactions
 
 
-def map_reactions(rxn, reactant_sets):
-    """Take a reaction template and a list of reactant sets and return the mapped reactions."""
-    ketone_slap_substructure = Chem.MolFromSmiles("NC(COC[Si](C)(C)C)(C)C")
+def map_reactions(rxn, reactant_sets, error_level="warn"):
+    """
+    Take a reaction template and a list of reactant sets and return the mapped reactions.
+    Adapted from https://github.com/jugoetz/slap-platform-predict/blob/5acb77ff4fdc412f7fd03a8226a4635e086978d7/src/util/rdkit_util.py#L163
+
+    Args:
+        rxn: RDKit reaction object
+        reactant_sets: list of reactant sets
+        error_level: "error" or "warn" - whether to raise RuntimeError or just warn if mapping a reaction fails.
+
+    Returns:
+        list of mapped reactions
+    """
     mapped_reactions = []
     for i, reactant_set in enumerate(reactant_sets):
         reaction_inst = create_reaction_instance(rxn, reactant_set)
@@ -170,32 +223,72 @@ def map_reactions(rxn, reactant_sets):
             mapped_reactions.append(reaction_inst[0])
         elif len(reaction_inst) == 0:  # failed
             mapped_reactions.append(None)
-            print(f"ERROR: No product for reactant set with index {i}")
-        elif len(reaction_inst) == 2 and reaction_inst[0].GetReactants()[
-            1
-        ].HasSubstructMatch(
-            ketone_slap_substructure
-        ):  # it's a ketone so it will give two products
-            # ketone SLAP products may or may not be identical, depending on whether the starting ketone was assymetric
-            # to compare the smiles, we need to remove molAtomMapNumbers. We need to work on copies to not clear them from the reaction instance
-            products = [
-                Chem.Mol(reaction_inst[0].GetProducts()[0]),
-                Chem.Mol(reaction_inst[1].GetProducts()[0]),
-            ]
-            for p in products:
-                for atom in p.GetAtoms():
-                    if atom.HasProp("molAtomMapNumber"):
-                        atom.ClearProp("molAtomMapNumber")
-            if Chem.MolToSmiles(products[0]) == Chem.MolToSmiles(
-                products[1]
-            ):  # products are identical and we can discard one reaction
-                mapped_reactions.append(reaction_inst[0])
+            if error_level == "error":
+                raise RuntimeError(f"ERROR: No product for reactant set with index {i}")
+            elif error_level == "warn":
+                warnings.warn(f"ERROR: No product for reactant set with index {i}")
             else:
-                print(
-                    f"WARNING: Multiple stereoisomeric products for reactant set with index {i}"
-                )
-                mapped_reactions.append(reaction_inst)
-        else:  # failed
-            mapped_reactions.append(reaction_inst)
-            print(f"ERROR: Multiple products for reactant set with index {i}")
+                raise ValueError(f"Unknown error level: {error_level}")
+        else:  # too many resulting reactions
+            # remove any duplicates
+            idx = []
+            unique_reactions = []
+            for j, reac in enumerate(reaction_inst):
+                reac_smarts = rdChemReactions.ReactionToSmarts(reac)
+                if reac_smarts not in unique_reactions:
+                    idx.append(j)
+                    unique_reactions.append(reac_smarts)
+                reaction_inst_cleaned = [reaction_inst[j] for j in idx]
+                if len(reaction_inst_cleaned) > 1:
+                    if error_level == "error":
+                        raise RuntimeError(
+                            f"ERROR: Multiple products for reactant set with index {i}"
+                        )
+                    elif error_level == "warn":
+                        warnings.warn(
+                            f"ERROR: Multiple products for reactant set with index {i}"
+                        )
+                    else:
+                        raise ValueError(f"Unknown error level: {error_level}")
+
+            mapped_reactions.append(reaction_inst_cleaned)
+
     return mapped_reactions
+
+
+def remove_monomer_pg_chirality(
+    mol: Union[str, Chem.Mol], no_match: str = "silent"
+) -> Chem.Mol:
+    """
+    Given a monomer building block, remove only the chiral information
+    for the spiro carbon of the protecting group, leaving the rest unchanged.
+
+    Args:
+        mol (Union[str, Chem.Mol]): The monomer given as SMILES string or RDKit Mol
+        no_match (str): What to do if no substructure match is found.
+            If "silent", just return the input mol, if "error", raise an exception.
+            Default: "silent"
+
+    Returns:
+        Chem.Mol: The monomer with chiral information for the spiro carbon removed
+    """
+    if isinstance(mol, str):
+        mol = Chem.MolFromSmiles(mol)
+    else:
+        mol = Chem.Mol(mol)
+
+    patt = Chem.MolFromSmarts(
+        "[$([CR2](O1)(ONC2)(C2)C(=O)OC1)]"
+    )  # hits a spiro carbon atom between an isoxazolidine and a 5-membered lactone-ether ring
+
+    match = mol.GetSubstructMatches(patt)
+    if len(match) == 0:
+        if no_match == "silent":
+            return mol
+    if len(match) != 1:
+        raise ValueError(
+            f"{len(match)} substructure matches found for {Chem.MolToSmiles(mol)}. Expected 1."
+        )
+    atom = mol.GetAtomWithIdx(match[0][0])
+    atom.SetChiralTag(Chem.ChiralType.CHI_UNSPECIFIED)
+    return mol
