@@ -429,7 +429,7 @@ class SynFermProductDataset:
     """
 
     dummy_reactants = [
-        [Chem.MolFromSmiles("C"), Chem.MolFromSmiles("C")],
+        [Chem.MolFromSmiles("C"), Chem.MolFromSmiles("C"), Chem.MolFromSmiles("C")],
     ]
 
     def __init__(
