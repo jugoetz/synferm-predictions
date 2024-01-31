@@ -14,6 +14,8 @@ logs/
 checkpoints/
 src/wandb/
 wandb/
+notebooks/results.zip
+notebooks/exp_db.csv
 *__pycache__*
 
 # Pycharm
