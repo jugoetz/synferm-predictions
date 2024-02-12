@@ -395,8 +395,17 @@ class OneHotEncoder:
     Molecule featurization with one-hot vector
     """
 
-    def __init__(self):
+    def __init__(self, unknown_molecule="raise"):
+        """
+        Args:
+            unknown_molecule: What to do if an unknown molecule is encountered during processing.
+                "raise": Raise ValueError
+                "silent": Do not set the bit from this molecule.
+                    The resulting one-hot-vector will have only zeros for the dimension of the unknown molecule
+                Default: "raise".
+        """
         self.classes = {}
+        self.unknown_molecule = unknown_molecule
 
     def add_dimension(self, smiles: list):
         """
@@ -445,10 +454,18 @@ class OneHotEncoder:
             canonical_smiles = Chem.MolToSmiles(
                 remove_monomer_pg_chirality(desalt_building_block(smi))
             )
-            # get the one-hot index
-            one_hot_index = self.classes[dimension][canonical_smiles]
-            # get the one-hot vector
-            one_hot_vector[one_hot_index + sum(feat_sizes[:dimension])] = 1
+            try:
+                # get the one-hot index
+                one_hot_index = self.classes[dimension][canonical_smiles]
+                # get the one-hot vector
+                one_hot_vector[one_hot_index + sum(feat_sizes[:dimension])] = 1
+            except KeyError:  # occurs if input molecule is unknown
+                if self.unknown_molecule == "raise":
+                    # standard behavior: raise exception
+                    raise ValueError(f"Unknown input molecule {smi}.")
+                elif self.unknown_molecule == "silent":
+                    # silent mode: Do not set the bit
+                    pass
 
         return one_hot_vector
 

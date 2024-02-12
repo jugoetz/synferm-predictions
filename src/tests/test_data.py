@@ -98,3 +98,12 @@ class TestOneHotEncoder(TestCase):
                         == np.array([i, i + len(self.smiles), i + 2 * len(self.smiles)])
                     )
                 )
+
+    def test_unknown_molecule_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.encoder.process(self.smiles[0], self.smiles[1], "c1ccccc1")
+
+    def test_unknown_molecule_fails_silent(self):
+        silent_encoder = OneHotEncoder(unknown_molecule="silent")
+        silent_encoder.add_dimension(self.smiles)
+        self.assertEqual(0, silent_encoder.process("c1ccccc1").sum())
