@@ -5,11 +5,9 @@ import numpy as np
 import torch
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
-from rdkit.Chem.rdChemReactions import ReactionToSmiles
 
 from src.data.dataloader import SynFermDataset
 from src.data.featurizers import OneHotEncoder
-from src.data.util import SLAPReactionGenerator, SLAPReactionSimilarityCalculator
 from src.util.rdkit_util import canonicalize_smiles
 from src.util.definitions import DATA_ROOT
 
@@ -62,7 +60,8 @@ class TestDataCaching(TestCase):
 class TestOneHotEncoder(TestCase):
     def setUp(self):
         self.encoder = OneHotEncoder()
-        self.smiles = ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I"]
+        self.smiles = ["C", "CC", "CCC", "CCCC"]
+        self.encoder.add_dimension(self.smiles)
         self.encoder.add_dimension(self.smiles)
         self.encoder.add_dimension(self.smiles)
 
@@ -77,9 +76,12 @@ class TestOneHotEncoder(TestCase):
     def test_process(self):
         for i, smi in enumerate(self.smiles):
             with self.subTest(smi=smi):
-                ohe = self.encoder.process(smi, smi)
+                ohe = self.encoder.process(smi, smi, smi)
                 self.assertTrue(
-                    np.all(ohe.nonzero() == np.array([i, i + len(self.smiles)]))
+                    np.all(
+                        ohe.nonzero()
+                        == np.array([i, i + len(self.smiles), i + 2 * len(self.smiles)])
+                    )
                 )
 
     def test_process_after_save_load(self):
@@ -89,7 +91,10 @@ class TestOneHotEncoder(TestCase):
         os.remove("test_process_after_save_load.json")
         for i, smi in enumerate(self.smiles):
             with self.subTest(smi=smi):
-                ohe = encoder_from_file.process(smi, smi)
+                ohe = encoder_from_file.process(smi, smi, smi)
                 self.assertTrue(
-                    np.all(ohe.nonzero() == np.array([i, i + len(self.smiles)]))
+                    np.all(
+                        ohe.nonzero()
+                        == np.array([i, i + len(self.smiles), i + 2 * len(self.smiles)])
+                    )
                 )
