@@ -21,3 +21,14 @@ To see the full list of command line arguments, run:
 ```bash
 python run.py train --help
 ```
+
+## Predicting using trained models
+The `inference.py` script serves as an entrypoint for predicting reaction outcome.
+It expects a CSV file with three columns: `initiator`, `monomer`, `terminator`.
+See `config/config.yaml` for an example configuration file.
+
+Call it like:
+```bash
+python inference.py -i example_reactants.csv -o out.csv
+```
+or use `python inference.py --help` for more information.

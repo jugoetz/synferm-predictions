@@ -1,6 +1,7 @@
 import argparse
 import pathlib
-import statistics
+import pickle as pkl
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -9,252 +10,286 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.model.classifier import load_trained_model
-from src.util.definitions import TRAINED_MODEL_DIR, LOG_DIR
-from src.data.dataloader import SLAPProductDataset, collate_fn
+from src.util.definitions import TRAINED_MODEL_DIR
+from src.data.dataloader import GraphLessSynFermDataset, graphless_collate_fn
 
 
-def import_valid_smiles_from_vl(
-    raw_dir: pathlib.Path, filename: str, valid_idx_file: pathlib.Path = None
-):
-    """Import smiles from a csv file and filter by values in the `valid` column of a second csv file"""
-    smiles_df = pd.read_csv(raw_dir / filename)
-    if valid_idx_file is None:
-        return smiles_df
-    else:
-        indices_arr = pd.read_csv(valid_idx_file)["valid"].values
-        return smiles_df[indices_arr]
+def run_xgb_models(model_paths, dataset):
+    """
+    Run the XGB models and return predictions
+
+    Args:
+        model_paths (list): List of pathlib.Path containing an XGB model pickle file
+        dataset (list): List of datapoints the models should be applied to.
+            A datapoint is a 4-tuple (idx, graph, global_features, label) such as the one returned from a SynFermDataset
+
+    Returns:
+        np.array: Predicted labels, aggregated over models by majority voting
+    """
+    idx, _, global_features, _ = map(list, zip(*dataset))
+    preds_folds = []
+    # load the trained model if it is not loaded
+    for model_path in model_paths:
+        with open(model_path, "rb") as f:
+            model = pkl.load(f)
+        probs = np.stack(
+            [y[:, 1] for y in model.predict_proba(global_features)], axis=1
+        )
+        # load decision thresholds
+        with open(model_path.parent / f"{model_path.parent.name}.txt", "r") as f:
+            thresholds = [float(i) for i in f.readlines()]
+        # apply thresholds
+        preds_folds.append(
+            np.stack(
+                [np.where(probs[:, i] > thresholds[i], 1, 0) for i in range(3)], axis=1
+            )
+        )
+    # get final pred (majority vote)
+    preds = np.where(np.sum(preds_folds, axis=0) >= len(preds_folds) / 2, 1, 0)
+    return preds
 
 
-def main(product_file, valid_idx_file, output_file, is_reaction, verbose=False):
-    use_validation_data = True
-    # paths to the best models
-    if use_validation_data:
-        # the next three are trained with full data, including validation plate data
-        model_0D = TRAINED_MODEL_DIR / "2023-03-06-105610_484882" / "best.ckpt"  # FFN
-        model_1D = (
-            TRAINED_MODEL_DIR / "2023-03-06-112027_188465" / "best.ckpt"
-        )  # D-MPNN
-        model_2D = (
-            TRAINED_MODEL_DIR / "2023-03-06-112721_778803" / "best.ckpt"
-        )  # D-MPNN
-        # path to the OneHotEncoder state for model_0D
-        ohe_state_dict = (
-            LOG_DIR / "OHE_state_dict_bhTczANzKRRqIgUR.json"
-        )  # with validation plate data
+def main(product_file, output_file, smiles_cols):
+    # trained model paths
+    model_0D = (
+        TRAINED_MODEL_DIR
+        / "2024-01-04-085409_305115_fold0"
+        / "last-epoch72-val_loss0.19.ckpt"
+    )  # FFN
+    model_1D_I = [
+        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        for i in range(3)
+    ]  # XGB
+    model_1D_M = [
+        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        for i in range(3, 6)
+    ]  # XGB
+    model_1D_T = [
+        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        for i in range(6, 9)
+    ]  # XGB
+    model_2D_IM = [
+        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        for i in range(3)
+    ]  # XGB
+    model_2D_IT = [
+        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        for i in range(6, 9)
+    ]  # XGB
+    model_2D_MT = [
+        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        for i in range(3, 6)
+    ]  # XGB
+    model_3D = [
+        TRAINED_MODEL_DIR / f"2024-01-26-161936_145583_fold{i}" / "model.pkl"
+        for i in range(9)
+    ]  # XGB
 
-    else:
-        # the next three are trained without using validation plate data
-        model_0D = TRAINED_MODEL_DIR / "2022-12-16-144509_863758" / "best.ckpt"  # FFN
-        model_1D = (
-            TRAINED_MODEL_DIR / "2022-12-16-145840_448790" / "best.ckpt"
-        )  # D-MPNN
-        model_2D = (
-            TRAINED_MODEL_DIR / "2022-12-06-115456_273019" / "best.ckpt"
-        )  # D-MPNN
-        # path to the OneHotEncoder state for model_0D
-        ohe_state_dict = (
-            LOG_DIR / "OHE_state_dict_FqIDTIsCHoURGQcv.json"
-        )  # without validation plate data
+    # path to the OneHotEncoder state for model_0D
+    ohe_state_dict = model_0D.parent / "OHE_state_dict_ohlvinnXkSzSXBJi.json"
 
-    # import data
+    # set file paths
     raw_dir = product_file.parent
-    # remove the .csv extension AND any other extensions behind it (e.g. remove .csv.bz2 or csv.gz)
     filename_base = product_file.name.split(".csv")[0]
-    df = import_valid_smiles_from_vl(
-        raw_dir, product_file.name, valid_idx_file=valid_idx_file
+    if output_file is None:
+        output_file = raw_dir / f"{filename_base}_predictions.csv"
+    log_file = output_file.with_suffix(".log")
+
+    # TODO if we want to accept --product inputs, we need to do the conversion to reactants at this point
+
+    # load data
+    data = GraphLessSynFermDataset(
+        name=product_file.name,
+        raw_dir=raw_dir,
+        global_features=["OHE_silent"],
+        global_featurizer_state_dict_path=ohe_state_dict,
+        smiles_columns=smiles_cols,
+        label_columns=None,
+        task="multilabel",
+        force_reload=True,
     )
 
-    data = SLAPProductDataset(
-        smiles=df["smiles"].values.tolist(),
-        is_reaction=is_reaction,
-        use_validation=use_validation_data,
+    # for the 1D/2D/3D models we will need fingerprints
+    data_fp = GraphLessSynFermDataset(
+        name=product_file.name,
+        raw_dir=raw_dir,
+        global_features=["FP"],
+        smiles_columns=smiles_cols,
+        label_columns=None,
+        task="multilabel",
+        force_reload=True,
     )
 
-    # Process data. This includes generating reaction graphs and takes some time.
-    data.process(
-        {
-            "dataset_0D": dict(
-                reaction=True,
-                global_features=[
-                    "OHE",
-                ],
-                global_featurizer_state_dict_path=ohe_state_dict,
-                graph_type="bond_edges",
-                featurizers="custom",
-            ),
-            "dataset_1D_slap": dict(
-                reaction=True,
-                global_features=None,
-                graph_type="bond_nodes",
-                featurizers="custom",
-            ),
-            "dataset_1D_aldehyde": dict(
-                reaction=True,
-                global_features=None,
-                graph_type="bond_nodes",
-                featurizers="custom",
-            ),
-            "dataset_2D": dict(
-                reaction=True,
-                global_features=None,
-                graph_type="bond_nodes",
-                featurizers="custom",
-            ),
-        }
-    )
-
-    # run all the predictions
-
-    if data.dataset_0D:
-        # load the trained model if it is not loaded
-        if isinstance(model_0D, pathlib.Path):
-            model_0D = load_trained_model("FFN", model_0D)
-            model_0D.eval()
-        trainer = pl.Trainer(accelerator="gpu", logger=False, max_epochs=-1)
-        dl = DataLoader(data.dataset_0D, collate_fn=collate_fn)
-        probabilities_0D = torch.concat(trainer.predict(model_0D, dl))
-        predictions_0D = (probabilities_0D > 0.5).numpy().astype(float)
-
-    if data.dataset_1D_aldehyde:
-        # load the trained model if it is not loaded
-        if isinstance(model_1D, pathlib.Path):
-            model_1D = load_trained_model("D-MPNN", model_1D)
-            model_1D.eval()
-        trainer = pl.Trainer(accelerator="gpu", logger=False, max_epochs=-1)
-        dl = DataLoader(data.dataset_1D_aldehyde, collate_fn=collate_fn)
-        probabilities_1D_aldehyde = torch.concat(trainer.predict(model_1D, dl))
-        predictions_1D_aldehyde = (
-            (probabilities_1D_aldehyde > 0.5).numpy().astype(float)
-        )
-
-    if data.dataset_1D_slap:
-        # load the trained model if it is not loaded
-        if isinstance(model_1D, pathlib.Path):
-            model_1D = load_trained_model("D-MPNN", model_1D)
-            model_1D.eval()
-        trainer = pl.Trainer(accelerator="gpu", logger=False, max_epochs=-1)
-        dl = DataLoader(data.dataset_1D_slap, collate_fn=collate_fn)
-        probabilities_1D_slap = torch.concat(trainer.predict(model_1D, dl))
-        predictions_1D_slap = (probabilities_1D_slap > 0.5).numpy().astype(float)
-
-    if data.dataset_2D:
-        # load the trained model if it is not loaded
-        if isinstance(model_2D, pathlib.Path):
-            model_2D = load_trained_model("D-MPNN", model_2D)
-            model_2D.eval()
-        trainer = pl.Trainer(accelerator="gpu", logger=False, max_epochs=-1)
-        dl = DataLoader(data.dataset_2D, collate_fn=collate_fn)
-        probabilities_2D = torch.concat(trainer.predict(model_2D, dl))
-        predictions_2D = (probabilities_2D > 0.5).numpy().astype(float)
-
-    # assemble outputs
-    predictions = np.full(len(data.reactions), np.nan, dtype=float)
-
-    predictions[data.idx_known] = [
-        statistics.mean(data.known_outcomes[i]) for i in data.idx_known
-    ]  # for known reaction we add the average reaction outcome
-    try:
-        predictions[data.idx_0D] = predictions_0D
-    except NameError:
-        pass
-    try:
-        predictions[data.idx_1D_slap] = predictions_1D_slap
-    except NameError:
-        pass
-    try:
-        predictions[data.idx_1D_aldehyde] = predictions_1D_aldehyde
-    except NameError:
-        pass
-    try:
-        predictions[data.idx_2D] = predictions_2D
-    except NameError:
-        pass
-
-    # check if we have not predicted for anything
-    # this should be only the reactions in data.invalid_idxs
-    rxn_idxs_no_pred = np.argwhere(np.isnan(predictions)).flatten()
-
-    rxn_idxs_invalid = [data.product_idxs.index(i) for i in data.invalid_idxs]
-
-    if set(rxn_idxs_no_pred) != set(rxn_idxs_invalid):
-        raise RuntimeError(
-            f"We have not predicted for some reactions that are not invalid. (reactions at index {rxn_idxs_no_pred.difference(rxn_idxs_invalid)})"
-        )
-
-    # convert the 1D- product_idxs to the directionally reverse 2D indices
-    arr = np.full((len(data.smiles), 2), fill_value=-1)
-    last_idx = -1
-    for i, idx in enumerate(data.product_idxs):
-        if idx == last_idx:
-            arr[idx, 1] = i
-        else:
-            last_idx = idx
-            arr[idx, 0] = i
-
-    confidence_dict = {
-        "known": 0,
-        "0D": 1,
-        "1D_SLAP": 2,
-        "1D_aldehyde": 2,
-        "2D_similar": 3,
-        "2D_dissimilar": 4,
+    # reference for which model we apply, based on one-hot-encoding for each reactant
+    model_domains = {
+        (True, True, True): "0D",
+        (True, True, False): "1D_T",
+        (True, False, True): "1D_M",
+        (False, True, True): "1D_I",
+        (True, False, False): "2D_MT",
+        (False, True, False): "2D_IT",
+        (False, False, True): "2D_IM",
+        (False, False, False): "3D",
     }
 
-    # translate problem type to integer
-    rxn_problem_types = list(map(confidence_dict.get, data.problem_type))
+    # determine which model to apply for each data points
+    models_to_apply = pd.DataFrame(
+        [model_domains[data.known_one_hot_encodings(i)] for i in range(len(data))],
+        columns=["dim"],
+    )
 
-    # we add a nonsense value to the end of each of these lists so that indexing with -1 will return the nonsense value
-    reactions_augmented = data.reactions + [""]
-    predictions_augmented = list(predictions) + [np.nan]
-    rxn_problem_types_augmented = rxn_problem_types + [99]
+    (
+        preds_0D,
+        preds_1D_I,
+        preds_1D_M,
+        preds_1D_T,
+        preds_2D_IM,
+        preds_2D_IT,
+        preds_2D_MT,
+        preds_3D,
+    ) = 8 * (None,)
 
-    # obtain individual new columns for output df
-    df["rxn1_smiles"] = [data.reactions[i] for i in arr[:, 0]]
+    # 0D model
+    if len(models_to_apply.loc[models_to_apply["dim"] == "0D"]) > 0:
+        # prepare
+        model = load_trained_model("FFN", model_0D)
+        model.eval()
+        trainer = pl.Trainer(accelerator="auto", logger=False, max_epochs=-1)
+        dl = DataLoader(
+            [
+                d
+                for i, d in enumerate(data)
+                if i in (models_to_apply.loc[models_to_apply["dim"] == "0D"]).index
+            ],
+            collate_fn=graphless_collate_fn,
+            num_workers=0,
+        )
+        # predict
+        probs_0D = torch.sigmoid(torch.concat(trainer.predict(model, dl)))
+        # load decision thresholds
+        with open(model_0D.parent / f"{model_0D.parent.name}.txt", "r") as f:
+            thresholds = [float(i) for i in f.readlines()]
+        # apply thresholds
+        preds_0D = torch.stack(
+            [torch.where(probs_0D[:, i] > thresholds[i], 1, 0) for i in range(3)], dim=1
+        )
 
-    df["rxn1_predictions"] = [predictions[i] for i in arr[:, 0]]
+    # 1D_I models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "1D_I"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "1D_I"]).index
+        ]
+        preds_1D_I = run_xgb_models(model_1D_I, dataset)
 
-    df["rxn1_confidence"] = [rxn_problem_types[i] for i in arr[:, 0]]
+    # 1D_M models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "1D_M"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "1D_M"]).index
+        ]
+        preds_1D_M = run_xgb_models(model_1D_M, dataset)
 
-    df["rxn2_smiles"] = [reactions_augmented[i] for i in arr[:, 1]]
+    # 1D_T models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "1D_T"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "1D_T"]).index
+        ]
+        preds_1D_T = run_xgb_models(model_1D_T, dataset)
 
-    df["rxn2_predictions"] = [predictions_augmented[i] for i in arr[:, 1]]
+    # 2D_IM models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "2D_IM"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "2D_IM"]).index
+        ]
+        preds_2D_IM = run_xgb_models(model_2D_IM, dataset)
 
-    df["rxn2_confidence"] = [rxn_problem_types_augmented[i] for i in arr[:, 1]]
+    # 2D_IT models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "2D_IT"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "2D_IT"]).index
+        ]
+        preds_2D_IT = run_xgb_models(model_2D_IT, dataset)
+
+    # 2D_MT models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "2D_MT"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "2D_MT"]).index
+        ]
+        preds_2D_MT = run_xgb_models(model_2D_MT, dataset)
+
+    # 3D models
+    if len(models_to_apply.loc[models_to_apply["dim"] == "3D"]) > 0:
+        dataset = [
+            d
+            for i, d in enumerate(data_fp)
+            if i in (models_to_apply.loc[models_to_apply["dim"] == "3D"]).index
+        ]
+        preds_3D = run_xgb_models(model_3D, dataset)
+
+    # assemble outputs
+    results = models_to_apply.copy()
+    results[["pred_A", "pred_B", "pred_C"]] = -1  # placeholder
+    if preds_0D is not None:
+        results.loc[
+            results["dim"] == "0D", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_0D.numpy()
+    if preds_1D_I is not None:
+        results.loc[
+            results["dim"] == "1D_I", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_1D_I
+    if preds_1D_M is not None:
+        results.loc[
+            results["dim"] == "1D_M", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_1D_M
+    if preds_1D_T is not None:
+        results.loc[
+            results["dim"] == "1D_T", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_1D_T
+    if preds_2D_IM is not None:
+        results.loc[
+            results["dim"] == "2D_IM", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_2D_IM
+    if preds_2D_IT is not None:
+        results.loc[
+            results["dim"] == "2D_IT", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_2D_IT
+    if preds_2D_MT is not None:
+        results.loc[
+            results["dim"] == "2D_MT", ["pred_A", "pred_B", "pred_C"]
+        ] = preds_2D_MT
+    if preds_3D is not None:
+        results.loc[results["dim"] == "3D", ["pred_A", "pred_B", "pred_C"]] = preds_3D
+
+    # safety net
+    if results.eq(-1).any().any():
+        warnings.warn(
+            "A prediction could not be made for all data points. Missing predictions are marked as '-1' in output file. Logged statistics will be inaccurate."
+        )
+
+    print(results)
 
     # write dataset statistics for control to log file (+ optionally print)
-    log_output = f"""{len(data.reactions)} reactions generated from {len(data.smiles)} input SMILES
-Known reactions: {(sum(x is not None for x in data.known_outcomes))}
-"""
-    if data.dataset_0D:
-        log_output += f"0D reactions: {len(data.dataset_0D)}, thereof {np.count_nonzero(predictions_0D)} predicted positive\n"
-    else:
-        log_output += "0D reactions: 0\n"
-    if data.dataset_1D_aldehyde:
-        log_output += f"1D reactions with unknown aldehyde: {len(data.dataset_1D_aldehyde)}, thereof {np.count_nonzero(predictions_1D_aldehyde)} predicted positive\n"
-    else:
-        log_output += "1D reactions with unknown aldehyde: 0\n"
-    if data.dataset_1D_slap:
-        log_output += f"1D reactions with unknown SLAP reagent: {len(data.dataset_1D_slap)}, thereof {np.count_nonzero(predictions_1D_slap)} predicted positive\n"
-    else:
-        log_output += "1D reactions with unknown SLAP reagent: 0\n"
-    if data.dataset_2D:
-        log_output += f"2D reactions: {len(data.dataset_2D)}, thereof {np.count_nonzero(predictions_2D)} predicted positive\n"
-    else:
-        log_output += "2D reactions: 0\n"
-
-    if output_file is None:
-        output_file = raw_dir / f"{filename_base}_reaction_prediction.csv"
-        log_file = raw_dir / f"{filename_base}_reaction_prediction.log"
-    else:
-        log_file = output_file.with_suffix(".log")
+    log_output = f"Predicted for {len(data)} reactant combinations\n"
+    for split in ["0D", "1D_I", "1D_M", "1D_T", "2D_IM", "2D_IT", "2D_MT", "3D"]:
+        if len(results.loc[results["dim"] == split]) > 0:
+            log_output += f"{split} data: {len(results.loc[results['dim'] == split])}, thereof {results.loc[results['dim'] == split, 'pred_A'].sum()} predicted to form product A\n"
 
     with open(log_file, "w") as file:
         file.write(log_output)
-    if verbose:
-        print(log_output)
 
     # write df to output file
-    df.to_csv(output_file, index=False)
+    results.to_csv(output_file, index=False)
 
     return
 
@@ -263,14 +298,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--product-file",
+        "-i",
+        "--input-file",
         type=pathlib.Path,
-        help="Path to a CSV file containing SMILES of SLAP products",
+        help="Path to a CSV file containing SMILES of Synthetic Fermentation reactants in columns named 'initiator', 'monomer', 'terminator'.",
         required=True,
     )
     parser.add_argument(
-        "--reaction",
-        help="Whether input is a reaction or not",
+        "--products",
+        help="If passed, expects the CSV file to have one column 'product' containing the SMILES for product A instead of reactants. Note: Currently not implemented.",
         action="store_true",
     )
     parser.add_argument(
@@ -282,12 +318,19 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument(
-        "--valid-idx-file",
-        type=pathlib.Path,
-        help="Path to a CSV file containing indices used to filter products",
+        "--smiles-columns",
+        nargs="*",
+        help="Headers of the columns containing SMILES strings of reactants (in the order I, M, T) (or product if '--products' is passed). The default headers are 'initiator', 'monomer', 'terminator' for reactants and 'product' for products",
         required=False,
         default=None,
     )
 
     args = parser.parse_args()
-    main(args.product_file, args.valid_idx_file, args.output_file, args.reaction)
+    if args.smiles_columns:
+        smiles_columns = args.smiles_columns
+    else:
+        if args.products:
+            smiles_columns = ["product"]
+        else:
+            smiles_columns = ["initiator", "monomer", "terminator"]
+    main(args.input_file, args.output_file, smiles_columns)
