@@ -142,10 +142,10 @@ def train_sklearn(
     metrics on the validation set.
 
     Args:
-        train (torch.utils.data.DataLoader): Training data
-        val: (torch.utils.data.DataLoader): Validation data
+        train (torch.utils.data.Dataset): Training data
+        val: (torch.utils.data.Dataset): Validation data
         hparams (dict): Model hyperparameters
-        test: (Union[DataLoader, Dict[torch.utils.data.DataLoader]], optional): Test data. If data is given, test metrics will be returned.
+        test: (Union[torch.utils.data.Dataset, Dict[torch.utils.data.Dataset]], optional): Test data. If data is given, test metrics will be returned.
         run_id (optional, str): Unique id to identify the run. If None, will generate an ID containing the current datetime.
             Defaults to None.
         run_group (optional, str): Id to identify the run group. Default None.
