@@ -365,6 +365,8 @@ class RDKitMorganFingerprinter:
     Molecule featurization with Morgan fingerprint
     """
 
+    name = "FP"
+
     def __init__(self, radius=3, n_bits=1024, **kwargs):
         self.radius = radius
         self.n_bits = n_bits
@@ -394,6 +396,8 @@ class OneHotEncoder:
     """
     Molecule featurization with one-hot vector
     """
+
+    name = "OHE"
 
     def __init__(self, unknown_molecule="raise"):
         """
@@ -505,6 +509,8 @@ class RDKit2DGlobalFeaturizer:
     Molecule featurization with RDKit 2D features. Uses descriptastorus (https://github.com/bp-kelley/descriptastorus).
     """
 
+    name = "RDKit"
+
     def __init__(self, normalize: bool = True, **kwargs):
         """
         Args:
@@ -560,6 +566,8 @@ class FromFileFeaturizer:
         ...
     }
     """
+
+    name = "fromFile"
 
     def __init__(self, filename: Union[str, os.PathLike], **kwargs):
         """

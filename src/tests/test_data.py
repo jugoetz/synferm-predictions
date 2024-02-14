@@ -3,12 +3,9 @@ from unittest import TestCase
 
 import numpy as np
 import torch
-from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors
 
-from src.data.dataloader import SynFermDataset
+from src.data.dataloader import SynFermDataset, GraphLessSynFermDataset
 from src.data.featurizers import OneHotEncoder
-from src.util.rdkit_util import canonicalize_smiles
 from src.util.definitions import DATA_ROOT
 
 
@@ -107,3 +104,70 @@ class TestOneHotEncoder(TestCase):
         silent_encoder = OneHotEncoder(unknown_molecule="silent")
         silent_encoder.add_dimension(self.smiles)
         self.assertEqual(0, silent_encoder.process("c1ccccc1").sum())
+
+
+class TestGraphLessSynFermDataset(TestCase):
+    def setUp(self) -> None:
+        self.data = GraphLessSynFermDataset(
+            name="example_sf.csv",
+            raw_dir=DATA_ROOT,
+            global_features=["OHE_silent"],
+            smiles_columns=["I_smiles", "M_smiles", "T_smiles"],
+            label_columns=None,
+            task="multilabel",
+            force_reload=True,
+        )
+
+    def test_ohe_data_sizes_correct(self):
+        # in the example data there are 1 I, 2 M, 8 T, so these are the sizes we expect
+        correct = {"OHE_0": 1, "OHE_1": 2, "OHE_2": 8}
+        for name, size in self.data.global_features_sizes:
+            with self.subTest(name=name):
+                self.assertEqual(correct[name], size)
+
+    def test_ohe_known_encodings_correct(self):
+        # we initialize the OHEncoder with this data, so all reactants must be known
+        for i in range(len(self.data)):
+            with self.subTest(idx=i):
+                self.assertTrue(all(self.data.known_one_hot_encodings(i)))
+
+    def test_ohe_unknown_encodings_correct(self):
+        # we initialize the OHEncoder with this data, so all reactants must be known
+        data_with_unknown = GraphLessSynFermDataset(
+            name="example_sf.csv",
+            raw_dir=DATA_ROOT,
+            global_features=["OHE_silent"],
+            smiles_columns=["I_smiles", "M_smiles", "T_smiles"],
+            label_columns=None,
+            task="multilabel",
+            force_reload=True,
+            global_featurizer_state_dict_path=(
+                DATA_ROOT / "OHE_state_dict_example.json"
+            ),  # a fabricated state dict that recognizes only Ph023,Mon017,TerTH010 from example_sf.csv
+        )
+        # the expected result is that the first element in the tuple (I) it always True
+        # the second element (M) is true for indices 0-7 (inclusive)
+        # the third element (T) is true for indices 0 and 8
+
+        for i in range(len(data_with_unknown)):
+            with self.subTest(idx=i):
+                if i == 0:
+                    self.assertListEqual(
+                        [True, True, True],
+                        list(data_with_unknown.known_one_hot_encodings(i)),
+                    )
+                elif i < 8:
+                    self.assertListEqual(
+                        [True, True, False],
+                        list(data_with_unknown.known_one_hot_encodings(i)),
+                    )
+                elif i > 8:
+                    self.assertListEqual(
+                        [True, False, False],
+                        list(data_with_unknown.known_one_hot_encodings(i)),
+                    )
+                else:
+                    self.assertListEqual(
+                        [True, False, True],
+                        list(data_with_unknown.known_one_hot_encodings(i)),
+                    )
