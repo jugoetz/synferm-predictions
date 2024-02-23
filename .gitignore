@@ -18,6 +18,8 @@ notebooks/results.zip
 notebooks/exp_db.csv
 *__pycache__*
 
+# Stuff for others, unrelated to the paper
+production_models/2024-02-23-134822*
 # Pycharm
 .idea/
 .run/
