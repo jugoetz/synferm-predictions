@@ -1,4 +1,9 @@
-# synferm-predictions
+# ML Training and Inference for Synthetic Fermentation
+
+<a href="https://github.com/jugoetz/synferm-predictions/blob/main/LICENSE"><img alt="License: MIT" src="https://black.readthedocs.io/en/stable/_static/license.svg"></a>
+<a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
+
+For code used to collect experimental data, see [this repository](https://github.com/jugoetz/library-generation).
 
 ## Installation
 
@@ -32,3 +37,16 @@ Call it like:
 python inference.py -i example_reactants.csv -o out.csv
 ```
 or use `python inference.py --help` for more information.
+
+## Development
+We use [nbstripout](https://pypi.org/project/nbstripout/) to remove output from notebooks before committing to the repository.
+Install with:
+```bash
+conda install -c conda-forge nbstripout # or pip install nbstripout
+nbstripout --install  # configures git filters and attributes for this repo
+```
+We use [pre-commit](https://pre-commit.com/) hooks to ensure standardized code formatting.
+Install with:
+```bash
+pre-commit install
+```
