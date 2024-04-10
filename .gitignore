@@ -7,6 +7,7 @@ config/*
 data/*
 !data/example_split
 !data/example_dataset.csv
+!data/example_sf.csv
 
 lightning_logs/
 outputs/
