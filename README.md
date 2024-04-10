@@ -16,6 +16,13 @@ Notes:
 mamba env create -f environment.yaml
 ```
 
+_Note:_ 
+The `dgl` dependency sometimes creates issues where some packages are "not found" despite existing in the specified channels.
+To fix this, you can try installing `dgl` separately with `pip`:
+```bash
+pip install dgl -f https://data.dgl.ai/wheels/repo.html
+```
+
 ## Training models
 The `run.py` script serves as an entrypoint for training models.
 It is configured with a set of command line arguments,

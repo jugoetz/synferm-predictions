@@ -1,7 +1,7 @@
 name: synferm-predictions
 channels:
   - conda-forge
-  - nvidia
+  - pytorch
 dependencies:
   - python=3.11.*
   - conda-forge::rdkit=2023.03.*
@@ -9,11 +9,8 @@ dependencies:
   - conda-forge::py-xgboost=1.7.*
   - seaborn=0.12.*
   - pytorch::pytorch=2.0.*
-  - pytorch::torchvision
-  - pytorch::torchaudio
   - lightning=2.0.*
   - torchmetrics=1.0.*
-  - dglteam::dgl
   - pre-commit=3.3.*
   - pip
   - pip:
