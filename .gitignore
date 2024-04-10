@@ -34,3 +34,6 @@ production_models/2024-02-23-134822*
 notebooks/*.svg
 notebooks/*.png
 notebooks/results/
+
+# MacOS
+.DS_Store
