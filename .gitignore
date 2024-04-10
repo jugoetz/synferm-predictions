@@ -12,7 +12,8 @@ data/*
 
 lightning_logs/
 outputs/
-logs/
+logs/*
+!/logs/.gitkeep
 checkpoints/
 src/wandb/
 wandb/
