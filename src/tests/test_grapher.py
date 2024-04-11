@@ -14,7 +14,6 @@ from src.data.grapher import (
     atom_and_bond_mapping,
 )
 from src.data.featurizers import dummy_atom_featurizer, dummy_bond_featurizer
-from src.util.rdkit_util import mol_to_file_with_indices
 
 
 class Test(TestCase):
@@ -29,10 +28,6 @@ class Test(TestCase):
         # extract reactant/product Mol (i.e. a single Mol for all reactants and one for all products)
         self.reactants = Chem.MolFromSmiles(self.example_rxn_smiles.split(">>")[0])
         self.products = Chem.MolFromSmiles(self.example_rxn_smiles.split(">>")[1])
-
-        # produce images containing ground truth indices
-        mol_to_file_with_indices(self.reactants, "reactants.png")
-        mol_to_file_with_indices(self.products, "products.png")
 
         # extract atom map numbers
         self.reactant_atom_map_numbers = get_atom_map_numbers(self.reactants)
@@ -51,13 +46,12 @@ class Test(TestCase):
         )
 
     def test_get_atom_to_bond_maps(self):
-        """The ground truth can be assessed with self.example_m.GetBondBetweenAtoms(x, y).GetIdx()"""
         expected_a2b = {
             (0, 1): 0,  # C_sec -> N
             (1, 2): 1,  # N -> C_tert
             (2, 3): 2,  # C_tert -> methyl
             (2, 0): 3,  # C_tert -> C_sec
-        }
+        }  # n.b. this ground truth can be assessed with self.example_m.GetBondBetweenAtoms(x, y).GetIdx()
         a2b = get_atom_to_bond_maps(self.example_m)
         self.assertEqual(expected_a2b, a2b)
 
@@ -262,10 +256,6 @@ class Test(TestCase):
         self.assertFalse(ponly_atom)
 
     def test_atom_and_bond_mapping_returns_correct_r2p_atom(self):
-        """
-        See reactants.png and products.png for ground truth mapping.
-        Mapping should be [(1, 4), (2, 0), (3, 1), (4, 2), (5, 3)]
-        """
         r2p_atom, _, _, _, _, _ = atom_and_bond_mapping(
             self.reactant_atom_map_numbers,
             self.product_atom_map_numbers,
@@ -314,7 +304,6 @@ class Test(TestCase):
 
     def test_atom_and_bond_mapping_returns_correct_r2p_bond(self):
         """
-        See reactants.png and products.png for ground truth mapping.
         You can use Mol.GetBondBetweenAtoms(start_atom, end_atom).GetIdx() to get the
         ground truth bond mapping from there, which is:
         [(1, 0), (2, 1), (3, 2), (4, 4)]

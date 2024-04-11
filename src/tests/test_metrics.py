@@ -1,3 +1,4 @@
+import shutil
 from copy import deepcopy
 from unittest import TestCase
 import unittest
@@ -23,8 +24,6 @@ class TestBinaryBalancedAccuracy(TestCase):
         pred = torch.tensor([0.6, 0.4, 0.9, 0.9])
         value_sklearn = balanced_accuracy_score(true, pred > 0.5)
         value_metrics = self.metric(pred, true)
-        # print(value_sklearn)
-        # print(value_metrics)
         self.assertAlmostEqual(value_metrics.item(), value_sklearn)
 
     def test_works_with_cuda_tensor(self):
@@ -110,14 +109,16 @@ class TestMulticlassBalancedAccuracy(TestCase):
         for _ in range(1000):
             true = torch.randint(0, 4, (25,))
             pred = torch.rand((25, 4))
+
+            if not set(torch.argmax(pred, dim=1).tolist()).issubset(set(true.tolist())):
+                self.skipTest("y_pred contains value not in y_true. Behavior is undefined in this case, skipping test.")
             value_sklearn = balanced_accuracy_score(true, torch.argmax(pred, dim=1))
             value_metrics = self.metric(pred, true).item()
 
             # skip if true does not have
             with self.subTest(
-                msg="May fail if y_true does not contain a class that is contained in y_pred (undefined case)",
                 true=true.tolist(),
-                pred=pred.tolist(),
+                pred=torch.argmax(pred, dim=1).tolist(),
             ):
                 self.assertAlmostEqual(value_sklearn, value_metrics, places=4)
 
@@ -139,8 +140,6 @@ class TestMultilabelBalancedAccuracy(TestCase):
         ]
         self.metric.update(pred, true)
         value_metrics = self.metric.compute()
-        # print(value_sklearn)
-        # print(value_metrics)
         self.assertTrue(
             torch.isclose(
                 torch.tensor(value_sklearn, dtype=torch.float), value_metrics
@@ -199,9 +198,13 @@ class TestEvaluate(TestCase):
     Test whether the calculate_metrics function in evaluate.py delivers the same result as the torchmetrics metrics
     on the classifier.
     For this, we train a model and compare the metrics on its validation set on the last epoch.
+
+    The test will create an artifact in DATA_ROOT / "cache" (the cached processed data set) that we do not delete in cleanup
     """
 
     def setUp(self) -> None:
+        if not (DATA_ROOT / "synferm_dataset_2023-09-05_40018records.csv").is_file():
+            self.skipTest("This test requires the full data set `synferm_dataset_2023-09-05_40018records.csv` to run. Skipping test.")
         self.maxDiff = None
         data = SynFermDataset(
             name="synferm_dataset_2023-09-05_40018records.csv",
@@ -218,7 +221,7 @@ class TestEvaluate(TestCase):
             force_reload=False,
         )
         train_dl = DataLoader(
-            [data[i] for i in range(1024)],
+            [data[i] for i in range(4096)],
             batch_size=128,
             shuffle=False,
             collate_fn=collate_fn,
@@ -227,7 +230,7 @@ class TestEvaluate(TestCase):
             persistent_workers=False,
         )
         val_dl = DataLoader(
-            [data[i] for i in range(1024, 2048)],
+            [data[i] for i in range(4096, 8192)],
             batch_size=128,
             shuffle=False,
             collate_fn=collate_fn,
@@ -261,11 +264,12 @@ class TestEvaluate(TestCase):
             },
             run_id="test1234",
         )
+        accelerator = "gpu" if torch.cuda.is_available() else "cpu"
         trainer = Trainer(
-            accelerator="gpu",
+            accelerator=accelerator,
             max_epochs=10,
             log_every_n_steps=20,
-            default_root_dir=LOG_DIR / "checkpoints",
+            default_root_dir=LOG_DIR / "checkpoints" / "test",
             logger=False,
             enable_progress_bar=False,
         )
@@ -274,6 +278,11 @@ class TestEvaluate(TestCase):
 
         self.val_preds = torch.concatenate(model.val_predictions, dim=0).cpu()
         self.val_truth = torch.stack([i[3] for i in val_dl.dataset], dim=0).cpu()
+        print(self.val_preds)
+        if (self.val_preds[:, 0] > 0.5).sum() == 0:
+            raise ValueError("All predictions for A are zero, which is not expected. Please check the model implementation.")
+        if (self.val_preds[:, 0] > 0.5).sum() == len(self.val_preds):
+            raise ValueError("All predictions for A are one, which is not expected. Please check the model implementation.")
 
         model_metrics = model.val_metrics.compute()
         # in the multilabel case, we receive metrics for each label
@@ -314,6 +323,10 @@ class TestEvaluate(TestCase):
                     self.assertAlmostEqual(model_metric, self.eval_metrics[k], places=4)
             except KeyError:
                 print(f"Skipped {k}, which is not contained in model metrics")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(LOG_DIR / "checkpoints" / "test")  # cleanup
 
 
 if __name__ == "__main__":

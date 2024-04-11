@@ -107,8 +107,9 @@ class TestOneHotEncoder(TestCase):
 
 
 class TestGraphLessSynFermDataset(TestCase):
-    def setUp(self) -> None:
-        self.data = GraphLessSynFermDataset(
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.data = GraphLessSynFermDataset(
             name="example_sf.csv",
             raw_dir=DATA_ROOT,
             global_features=["OHE_silent"],
@@ -171,3 +172,7 @@ class TestGraphLessSynFermDataset(TestCase):
                         [True, False, True],
                         list(data_with_unknown.known_one_hot_encodings(i)),
                     )
+
+    @classmethod
+    def tearDownClass(cls):
+        os.remove(cls.data.global_featurizer_state_dict_path)  # delete the generated state dict
