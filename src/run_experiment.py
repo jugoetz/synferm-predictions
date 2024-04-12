@@ -1,6 +1,11 @@
 from torch.utils.data import DataLoader
 
-from src.data.dataloader import SynFermDataset, collate_fn
+from src.data.dataloader import (
+    SynFermDataset,
+    GraphLessSynFermDataset,
+    collate_fn,
+    graphless_collate_fn,
+)
 from src.util.definitions import LOG_DIR
 from src.util.io import walk_split_directory
 from src.util.logging import generate_run_id
@@ -14,21 +19,57 @@ def run_training(args, hparams):
     """
     Handles training and hyperparameter optimization.
     """
-    # load data
-    data = SynFermDataset(
-        name=args.data_path.name,
-        raw_dir=args.data_path.parent,
-        save_dir=(args.data_path.parent / "cache"),
-        reaction=hparams["encoder"]["reaction"],
-        smiles_columns=args.smiles_columns,
-        label_columns=args.label_columns,
-        graph_type=hparams["encoder"]["graph_type"],
-        global_features=hparams["decoder"]["global_features"],
-        global_features_file=hparams["decoder"]["global_features_file"],
-        featurizers=hparams["encoder"]["featurizers"],
-        task=hparams["training"]["task"],
-        force_reload=args.force_reload,
-    )
+
+    # based on the model type, we will use different data set classes and training functions
+    # the major advantage is that for the models that do not require graph data,
+    # we can skip the expensive graph building
+    if hparams["name"] in [
+        "D-MPNN",
+        "GCN",
+        "AttentiveFP",
+        "GraphSAGE",
+        "GraphAgnostic",
+    ]:
+        hparams["model_type"] = "torch_graph"  # graph data set + torch training
+    elif hparams["name"] in ["FFN"]:
+        hparams[
+            "model_type"
+        ] = "torch_nongraph"  # data set without graphs + torch training
+    elif hparams["name"] in ["LogisticRegression", "XGB"]:
+        hparams["model_type"] = "sklearn"  # data set without graphs + sklearn training
+    else:
+        raise ValueError(f"Unknown model type {hparams['name']}")
+
+    if hparams["model_type"] == "torch_graph":
+        # load data
+        data = SynFermDataset(
+            name=args.data_path.name,
+            raw_dir=args.data_path.parent,
+            save_dir=(args.data_path.parent / "cache"),
+            reaction=hparams["encoder"]["reaction"],
+            smiles_columns=args.smiles_columns,
+            label_columns=args.label_columns,
+            graph_type=hparams["encoder"]["graph_type"],
+            global_features=hparams["decoder"]["global_features"],
+            global_features_file=hparams["decoder"]["global_features_file"],
+            featurizers=hparams["encoder"]["featurizers"],
+            task=hparams["training"]["task"],
+            force_reload=args.force_reload,
+        )
+    elif hparams["model_type"] in ["torch_nongraph", "sklearn"]:
+        GraphLessSynFermDataset(
+            name=args.data_path.name,
+            raw_dir=args.data_path.parent,
+            save_dir=(args.data_path.parent / "cache"),
+            smiles_columns=args.smiles_columns,
+            label_columns=args.label_columns,
+            global_features=hparams["decoder"]["global_features"],
+            global_features_file=hparams["decoder"]["global_features_file"],
+            task=hparams["training"]["task"],
+            force_reload=args.force_reload,
+        )
+    else:
+        raise ValueError(f"Unknown model type {hparams['model_type']}")
 
     # update config with data processing specifics
     hparams["atom_feature_size"] = data.atom_feature_size
@@ -88,14 +129,7 @@ def run_training(args, hparams):
     elif job_type is None:
         job_type = "training"
 
-    if hparams["name"] in [
-        "D-MPNN",
-        "GCN",
-        "AttentiveFP",
-        "GraphSAGE",
-        "FFN",
-        "GraphAgnostic",
-    ]:
+    if hparams["model_type"].startswith("torch"):
         aggregate_metrics, fold_metrics = cross_validate(
             data,
             hparams,
@@ -108,7 +142,7 @@ def run_training(args, hparams):
             tags=args.tags,
             job_type=job_type,
         )
-    elif hparams["name"] in ["LogisticRegression", "XGB"]:
+    elif hparams["model_type"].startswith("sklearn"):
         aggregate_metrics, fold_metrics = cross_validate_sklearn(
             data,
             hparams,
@@ -121,8 +155,7 @@ def run_training(args, hparams):
             tags=args.tags,
             job_type=job_type,
         )
-    else:
-        raise ValueError(f"Unknown model type {hparams['name']}")
+
     if args.hparam_optimization:
         print(f"Optimized hyperparameters: {hparams}")
     print("Metrics aggregated over all splits:")
@@ -137,21 +170,36 @@ def run_prediction(args, hparams):
     Handles prediction from a trained model.
     """
 
-    # load data
-    data = SynFermDataset(
-        name=args.data_path.name,
-        raw_dir=args.data_path.parent,
-        reaction=hparams["encoder"]["reaction"],
-        smiles_columns=args.smiles_columns,
-        label_columns=None,
-        graph_type=hparams["encoder"]["graph_type"],
-        global_features=hparams["decoder"]["global_features"],
-        featurizers=hparams["encoder"]["featurizers"],
-        task=hparams["training"]["task"],
-    )
+    if hparams["model_type"] == "torch_graph":
+        # load data
+        data = SynFermDataset(
+            name=args.data_path.name,
+            raw_dir=args.data_path.parent,
+            reaction=hparams["encoder"]["reaction"],
+            smiles_columns=args.smiles_columns,
+            label_columns=None,
+            graph_type=hparams["encoder"]["graph_type"],
+            global_features=hparams["decoder"]["global_features"],
+            featurizers=hparams["encoder"]["featurizers"],
+            task=hparams["training"]["task"],
+        )
+
+        collate = collate_fn
+    elif hparams["model_type"] in ["torch_nongraph", "sklearn"]:
+        data = GraphLessSynFermDataset(
+            name=args.data_path.name,
+            raw_dir=args.data_path.parent,
+            smiles_columns=args.smiles_columns,
+            label_columns=None,
+            global_features=hparams["decoder"]["global_features"],
+            task=hparams["training"]["task"],
+        )
+        collate = graphless_collate_fn
+    else:
+        raise ValueError(f"Unknown model type {hparams['model_type']}")
 
     # instantiate DataLoader
-    dl = DataLoader(data, batch_size=32, shuffle=False, collate_fn=collate_fn)
+    dl = DataLoader(data, batch_size=32, shuffle=False, collate_fn=collate)
 
     # load trained model
     model = load_trained_model(hparams["name"], args.model_path)

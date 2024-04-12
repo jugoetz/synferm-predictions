@@ -6,7 +6,7 @@ import torch
 from sklearn.model_selection import KFold, ShuffleSplit
 from torch.utils.data import DataLoader
 
-from src.data.dataloader import collate_fn
+from src.data.dataloader import collate_fn, graphless_collate_fn
 from src.train import train, train_sklearn
 from src.util.io import index_from_file
 from src.util.logging import generate_run_id
@@ -84,6 +84,11 @@ def cross_validate(
     # dict to hold fold metrics
     metrics = defaultdict(list)
 
+    # determine collate function based on model type (i.e. based on whether the model uses graphs)
+    collate = (
+        collate_fn if hparams["model_type"] == "torch_graph" else graphless_collate_fn
+    )
+
     # iterate folds
     for i, fold in enumerate(split_idx):
         if strategy == "ShuffleSplit" and i >= n_folds:
@@ -98,7 +103,7 @@ def cross_validate(
             data_splitted["train"],
             batch_size=128,
             shuffle=True,
-            collate_fn=collate_fn,
+            collate_fn=collate,
             num_workers=0,
             pin_memory=False,
             persistent_workers=False,
@@ -106,7 +111,7 @@ def cross_validate(
         val_dl = DataLoader(
             data_splitted["val"],
             batch_size=128,
-            collate_fn=collate_fn,
+            collate_fn=collate,
             num_workers=0,
             pin_memory=False,
             persistent_workers=False,
@@ -116,7 +121,7 @@ def cross_validate(
                 k: DataLoader(
                     v,
                     batch_size=128,
-                    collate_fn=collate_fn,
+                    collate_fn=collate,
                     num_workers=0,
                     pin_memory=False,
                     persistent_workers=False,

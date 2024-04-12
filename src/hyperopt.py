@@ -148,17 +148,12 @@ def optimize_hyperparameters_bayes(
 
     bounds = get_hparam_bounds(hparam_config_path)
 
-    if hparams["name"] in [
-        "D-MPNN",
-        "GCN",
-        "GraphAgnostic",
-        "FFN",
-        "AttentiveFP",
-        "GraphSAGE",
-    ]:
+    if hparams["model_type"].startswith("torch"):
         obj_func = objective_function
-    else:
+    elif hparams["model_type"].startswith("sklearn"):
         obj_func = objective_function_sklearn
+    else:
+        raise ValueError(f"Unknown model type {hparams['model_type']}")
 
     best_parameters, values, experiment, model = optimize(
         parameters=bounds,
