@@ -7,21 +7,27 @@ For code used to collect experimental data, see [this repository](https://github
 
 ## Installation
 
-Notes:
-- You can try installing with `conda`, but the `mamba` solver worked more reliably for us
-- The `environment.yaml` file is written for a workstation with Nvidia GPU.
-   Use `environment_cpuonly.yaml` instead to run only on CPU.
-
 ```bash
-mamba env create -f environment.yaml
+conda env create -f environment.yaml
 ```
-
-_Note:_ 
-The `dgl` dependency sometimes creates issues where some packages are "not found" despite existing in the specified channels.
-To fix this, you can try installing `dgl` separately with `pip`:
+or (if you don't have a suitable GPU):
 ```bash
+conda env create -f environment_cpuonly.yaml
 pip install dgl -f https://data.dgl.ai/wheels/repo.html
 ```
+
+_Notes:_
+- The `environment.yaml` file is written for a workstation with Nvidia GPU.
+   Use `environment_cpuonly.yaml` instead to run only on CPU.
+   This will not install `CUDA` and will install the CPU-only versions of `pytorch` and `dgl`.
+- Installing the `dgl` dependency through `conda` sometimes creates issues where some packages are "not found" despite existing in the specified channels.
+   Instead, try installing `dgl` separately with `pip`:
+   ```bash
+   pip install dgl -f https://data.dgl.ai/wheels/repo.html
+   ```
+- On some systems with outdated libraries (such as university clusters) `dgl` wheels may not work,
+   and you may need to build it from source.
+   See the [DGL installation guide](https://docs.dgl.ai/install/index.html) for more information.
 
 ## Training models
 The `run.py` script serves as an entrypoint for training models.
