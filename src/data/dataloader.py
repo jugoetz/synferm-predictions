@@ -291,7 +291,7 @@ class SynFermDataset(DGLDataset):
                 .str.split(">>", expand=True)
                 .iloc[:, 0]
                 .str.split(".", expand=True)
-                .map(canonicalize_smiles)
+                .applymap(canonicalize_smiles)
             )  # shape (n_samples, n_reactants)
 
             # generate CGR from reactionSMILES
@@ -606,7 +606,7 @@ class GraphLessSynFermDataset(DGLDataset):
         ]  # shape (n_samples, n_smiles_columns)
         if smiles.shape[1] == 3:
             # sanitize inputs
-            reactants = smiles.map(
+            reactants = smiles.applymap(
                 canonicalize_smiles
             )  # shape (n_samples, n_reactants)
             # placeholder for graphs
