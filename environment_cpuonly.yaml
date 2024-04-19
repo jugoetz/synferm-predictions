@@ -2,6 +2,7 @@ name: synferm-predictions
 channels:
   - conda-forge
   - pytorch
+  - dglteam
 dependencies:
   - python=3.11.*
   - conda-forge::rdkit=2023.03.*
@@ -11,6 +12,7 @@ dependencies:
   - pytorch::pytorch=2.0.*
   - lightning=2.0.*
   - torchmetrics=1.0.*
+  - dglteam::dgl=1.1.*
   - pre-commit=3.3.*
   - pip
   - pip:

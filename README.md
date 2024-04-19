@@ -13,7 +13,6 @@ conda env create -f environment.yaml
 or (if you don't have a suitable GPU):
 ```bash
 conda env create -f environment_cpuonly.yaml
-pip install dgl -f https://data.dgl.ai/wheels/repo.html
 ```
 
 _Notes:_
@@ -28,6 +27,8 @@ _Notes:_
 - On some systems with outdated libraries (such as university clusters) `dgl` wheels may not work,
    and you may need to build it from source.
    See the [DGL installation guide](https://docs.dgl.ai/install/index.html) for more information.
+- There is an issue with `pytorch` and the `2024.1.x` version of the `mkl` dependency.
+  If an `ImportError [...] undefined symbol: iJIT_NotifyEvent` occurs, downgrade with `conda install mkl=2024.0`
 
 ### Log in to WandB
 We track training runs with [WandB](https://wandb.ai).
