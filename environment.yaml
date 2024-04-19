@@ -14,7 +14,7 @@ dependencies:
   - pytorch-cuda=11.7
   - lightning=2.0.*
   - torchmetrics=1.0.*
-  - dglteam/label/cu117::dgl
+  - dglteam/label/cu117::dgl=1.1.*
   - pre-commit=3.3.*
   - pip
   - pip:
