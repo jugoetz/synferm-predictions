@@ -57,7 +57,7 @@ def run_training(args, hparams):
             force_reload=args.force_reload,
         )
     elif hparams["model_type"] in ["torch_nongraph", "sklearn"]:
-        GraphLessSynFermDataset(
+        data = GraphLessSynFermDataset(
             name=args.data_path.name,
             raw_dir=args.data_path.parent,
             save_dir=(args.data_path.parent / "cache"),
