@@ -29,6 +29,14 @@ _Notes:_
    and you may need to build it from source.
    See the [DGL installation guide](https://docs.dgl.ai/install/index.html) for more information.
 
+### Log in to WandB
+We track training runs with [WandB](https://wandb.ai).
+Before starting any training runs, you need to log into `WandB` by running
+```bash
+wandb login
+```
+then supply your API key.
+
 ## Training models
 The `run.py` script serves as an entrypoint for training models.
 It is configured with a set of command line arguments,
