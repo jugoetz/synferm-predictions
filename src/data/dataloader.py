@@ -26,7 +26,7 @@ from src.data.featurizers import (
 )
 from src.data.util import SLAPReactionGenerator, SLAPReactionSimilarityCalculator
 from src.util.definitions import DATA_ROOT, LOG_DIR
-from src.util.rdkit_util import canonicalize_smiles
+from src.util.rdkit_util import canonicalize_smiles, standardize_building_block
 
 
 def collate_fn(
@@ -291,7 +291,9 @@ class SynFermDataset(DGLDataset):
                 .str.split(">>", expand=True)
                 .iloc[:, 0]
                 .str.split(".", expand=True)
-                .applymap(canonicalize_smiles)
+                .applymap(
+                    canonicalize_smiles
+                )  # n.b. using standardize_building_blocks might kill graph construction
             )  # shape (n_samples, n_reactants)
 
             # generate CGR from reactionSMILES
@@ -322,7 +324,9 @@ class SynFermDataset(DGLDataset):
             ]  # nested list with shape (n_samples, n_smiles_columns)
 
         # set input for the global featurizer(s)
-        global_featurizer_input = reactants if self.reaction else smiles
+        global_featurizer_input = (reactants if self.reaction else smiles).applymap(
+            standardize_building_block, return_smiles=True
+        )
 
         # apply global featurizers
         global_features = []
@@ -607,7 +611,7 @@ class GraphLessSynFermDataset(DGLDataset):
         if smiles.shape[1] == 3:
             # sanitize inputs
             reactants = smiles.applymap(
-                canonicalize_smiles
+                standardize_building_block, return_smiles=True
             )  # shape (n_samples, n_reactants)
             # placeholder for graphs
             self.graphs = [

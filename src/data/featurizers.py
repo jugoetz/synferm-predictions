@@ -30,11 +30,10 @@ from rdkit.Chem import Mol, MolFromSmiles
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import ConvertToNumpyArray
 
-from src.util.rdkit_util import (
-    canonicalize_smiles,
-    desalt_building_block,
-    remove_monomer_pg_chirality,
-)
+
+"""
+IMPORTANT: For all featurizers, the caller is responsible for ensuring that inputs are sanitized/canonicalized.
+"""
 
 
 class SynFermAtomFeaturizer(BaseAtomFeaturizer):
@@ -42,7 +41,8 @@ class SynFermAtomFeaturizer(BaseAtomFeaturizer):
 
     The atom features are:
 
-    * **One hot encoding of the atom type**. 11 elements ["H", "B", "C", "N", "O", "F", "Si", "S", "Cl", "Br", "I"] and "unknown" are supported.
+    * **One hot encoding of the atom type**. 11 elements ["H", "B", "C", "N", "O", "F", "Si", "S", "Cl", "Br", "I"]
+        and "unknown" are supported.
     * **One hot encoding of the atom degree**. The supported possibilities are ``0 - 5``.
     * **One hot encoding of the formal charge of the atom**. [-1, 0, 1] and "unknown" are supported.
     * **One hot encoding of the number of total Hs on the atom**. The supported possibilities are ``0 - 3``.
@@ -352,7 +352,8 @@ class ChempropBondFeaturizer(BaseBondFeaturizer):
                         bond_is_conjugated,
                         bond_is_in_ring,
                         partial(bond_stereo_one_hot, encode_unknown=True)
-                        # encode_unknown seems unnecessary as one of the options is STEREONONE. But we still follow the ref implementation.
+                        # encode_unknown seems unnecessary as one of the options is STEREONONE.
+                        # But we still follow the ref implementation.
                     ]
                 )
             },
@@ -416,7 +417,7 @@ class OneHotEncoder:
         Initialize a new dimension in the encoder.
 
         Expects a list of SMILES strings that are all options for the new dimension.
-        SMILES will be canonicalized, desalted and stereo information on the protecting group will be removed before adding to the encoder.
+        IMPORTANT: The caller is responsible for ensuring that inputs are sanitized/canonicalized.
 
         Args:
             smiles (list): List of SMILES strings.
@@ -424,14 +425,10 @@ class OneHotEncoder:
         new_dimension = len(self.classes.keys())
         class_values = {}
         for smi in smiles:
-            # canonicalize
-            canonical_smiles = Chem.MolToSmiles(
-                remove_monomer_pg_chirality(desalt_building_block(smi))
-            )
             # check if the smiles is already in the dictionary
-            if canonical_smiles not in class_values.keys():
+            if smi not in class_values.keys():
                 # if not, add
-                class_values[canonical_smiles] = len(class_values.keys())
+                class_values[smi] = len(class_values.keys())
             self.classes[new_dimension] = class_values
         return
 
@@ -439,6 +436,8 @@ class OneHotEncoder:
         """
         Process one or more smiles and return a one-hot vector.
         Expects a number of input smiles equal to the number of dimensions in the encoder (.n_dimensions)
+
+        IMPORTANT: The caller is responsible for ensuring that inputs are sanitized/canonicalized.
         """
         # check if the encoder has been initialized
         if self.n_dimensions == 0:
@@ -454,13 +453,9 @@ class OneHotEncoder:
         one_hot_vector = np.zeros(sum(feat_sizes))
 
         for dimension, smi in enumerate(smiles):
-            # canonicalize the smiles
-            canonical_smiles = Chem.MolToSmiles(
-                remove_monomer_pg_chirality(desalt_building_block(smi))
-            )
             try:
                 # get the one-hot index
-                one_hot_index = self.classes[dimension][canonical_smiles]
+                one_hot_index = self.classes[dimension][smi]
                 # get the one-hot vector
                 one_hot_vector[one_hot_index + sum(feat_sizes[:dimension])] = 1
             except KeyError:  # occurs if input molecule is unknown
@@ -585,9 +580,7 @@ class FromFileFeaturizer:
             with open(self.filename, "r") as f:
                 self._features = json.load(f)
 
-        return np.array(
-            [self._features[canonicalize_smiles(smi)] for smi in smiles]
-        ).flatten()
+        return np.array([self._features[smi] for smi in smiles]).flatten()
 
     @property
     def feat_size(self) -> int:

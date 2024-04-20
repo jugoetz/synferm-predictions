@@ -43,9 +43,11 @@ class TestBinaryBalancedAccuracy(TestCase):
             true = torch.randint(0, 2, (15,))
             pred = torch.rand((15,))
 
+            if (true.sum() == 0) or (true.sum() == len(true)):
+                continue  # skip if all true values are 0 or 1 b/c test is undefined
+
             value_sklearn = balanced_accuracy_score(true, pred > 0.5)
             value_metrics = self.metric(pred, true).item()
-
             with self.subTest(
                 msg="May fail if y_true does not contain a class that is contained in y_pred (undefined case)",
                 true=true.tolist(),

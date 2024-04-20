@@ -45,6 +45,16 @@ def desalt_building_block(mol: Union[str, Chem.Mol]) -> Chem.Mol:
     return mol_desalt
 
 
+def remove_atom_map_numbers(mol: Mol) -> None:
+    """
+    Remove atom-mapping numbers from a molecule. Operates in place.
+    """
+    for atom in mol.GetAtoms():
+        if atom.HasProp("molAtomMapNumber"):
+            atom.ClearProp("molAtomMapNumber")
+    return
+
+
 def canonicalize_smiles(smiles: str, remove_explicit_H: bool = False) -> str:
     """
     Canonicalize a SMILES string.
@@ -58,6 +68,46 @@ def canonicalize_smiles(smiles: str, remove_explicit_H: bool = False) -> str:
     if remove_explicit_H:
         mol = Chem.RemoveHs(mol)
     return Chem.MolToSmiles(mol)
+
+
+def standardize_building_block(
+    smiles: str, remove_map_no: bool = False, return_smiles=False
+) -> Union[str, Mol]:
+    """
+    Standardize a building block. This can be used to sanitize inputs to the ML models.
+
+    Includes desalting, taking the largest fragment, standardizing stereochemistry of the monomer protecting group.
+
+    For initiators, this will result give an anion, stripped of the K+ counterion.
+    For monomers, this will result in a neutral, desalted molecule.
+    The stereochemistry of the spiro carbon of the protecting group will be set to undefined
+    (b/c we do not expect an influence on reactivity and when we generate reactants from products for inference,
+     we cannot know the configuration of that stereocenter).
+    For terminators, this will result in a neutral, desalted molecule.
+
+    Molecules standardized with this function can be used as inputs to all featurizers in this project.
+    If a SMILES string is needed, e.g. for the OneHotEncoder, pass the returned molecule to Chem.MolToSmiles().
+
+    Args:
+        smiles (str): The SMILES string of the building block
+        remove_map_no (bool): Whether to remove atom-mapping numbers.
+            Set to true it input is taken from atom-mapped reactionSMILES.
+            Default: False
+        return_smiles (bool): Whether to return the standardized molecule as SMILES string. Default: False
+    Returns:
+        str or Mol: The standardized molecule
+    """
+    if remove_map_no:
+        mol_or_smiles = Chem.MolFromSmiles(smiles)
+        remove_atom_map_numbers(mol_or_smiles)
+    else:
+        mol_or_smiles = smiles
+    mol = remove_monomer_pg_chirality(desalt_building_block(mol_or_smiles))
+
+    if return_smiles:
+        return Chem.MolToSmiles(mol)
+    else:
+        return mol
 
 
 def move_atom_index_to_mapno(mol: Mol):
