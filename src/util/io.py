@@ -134,5 +134,6 @@ def save_best_hparams(hparams: dict, experiment_id: str) -> None:
         experiment_id (str): Unique identifier that will be used as part of the filename
     """
     filepath = LOG_DIR / "hyperparameters" / f"{experiment_id}.csv"
+    filepath.parent.mkdir(exist_ok=True, parents=True)
     df = pd.json_normalize(hparams)
     df.to_csv(filepath, index=False)
