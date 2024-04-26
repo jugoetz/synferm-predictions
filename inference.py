@@ -57,31 +57,31 @@ def main(product_file, output_file, smiles_cols):
         / "last-epoch72-val_loss0.19.ckpt"
     )  # FFN
     model_1D_I = [
-        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-21-005536_932721_fold{i}" / "model.pkl"
         for i in range(3)
     ]  # XGB
     model_1D_M = [
-        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-21-005536_932721_fold{i}" / "model.pkl"
         for i in range(3, 6)
     ]  # XGB
     model_1D_T = [
-        TRAINED_MODEL_DIR / f"2024-01-23-063840_864375_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-21-005536_932721_fold{i}" / "model.pkl"
         for i in range(6, 9)
     ]  # XGB
     model_2D_IM = [
-        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-20-225117_229650_fold{i}" / "model.pkl"
         for i in range(3)
     ]  # XGB
     model_2D_IT = [
-        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-20-225117_229650_fold{i}" / "model.pkl"
         for i in range(6, 9)
     ]  # XGB
     model_2D_MT = [
-        TRAINED_MODEL_DIR / f"2024-01-25-192032_503662_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-20-225117_229650_fold{i}" / "model.pkl"
         for i in range(3, 6)
     ]  # XGB
     model_3D = [
-        TRAINED_MODEL_DIR / f"2024-01-26-161936_145583_fold{i}" / "model.pkl"
+        TRAINED_MODEL_DIR / f"2024-04-20-142305_520992_fold{i}" / "model.pkl"
         for i in range(9)
     ]  # XGB
 
