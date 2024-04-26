@@ -40,7 +40,7 @@ class BodeColorPalette:
     light = sns.color_palette(palette=[_blues[4], _oranges[5]], n_colors=2)
 
 
-def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}):
+def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}, timeout=29):
     """
     Get runs from the WandB API.
 
@@ -55,7 +55,7 @@ def get_runs_as_list(project="jugoetz/synferm-predictions", filters={}):
         name_list (list): Names of the runs
     """
 
-    api = wandb.Api(timeout=29)
+    api = wandb.Api(timeout=timeout)
     runs = api.runs(project, filters=filters)
     summary_list, config_list, name_list, tag_list = [], [], [], []
     for run in runs:
