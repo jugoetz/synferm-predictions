@@ -30,6 +30,9 @@ production_models/2024-02-23-134822*
 # nq log files
 ,*
 
+# slurm output files
+slurm-*.out
+
 # backup
 *.old
 
