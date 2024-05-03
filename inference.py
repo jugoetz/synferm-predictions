@@ -14,6 +14,45 @@ from src.util.definitions import TRAINED_MODEL_DIR
 from src.data.dataloader import GraphLessSynFermDataset, graphless_collate_fn
 
 
+def run_ffn_models(model_paths, dataloader):
+    """
+    Run the FFN models and return predictions
+
+    Args:
+        model_paths (list): List of pathlib.Path containing an FFN model checkpoint
+        dataloader (torch.utils.data.DataLoader): Dataloader supplying the datapoints the models should be applied to.
+            A datapoint is a 4-tuple (idx, graph, global_features, label) such as the one returned from a SynFermDataset
+
+    Returns:
+        np.array: Predicted labels, aggregated over models by majority voting
+    """
+    preds_folds = []
+    trainer = pl.Trainer(accelerator="auto", logger=False, max_epochs=-1)
+
+    for model_path in model_paths:
+        # prepare
+        model = load_trained_model("FFN", model_path)
+        model.eval()
+        # predict
+        probs_0D = torch.sigmoid(torch.concat(trainer.predict(model, dataloader)))
+        # load decision thresholds
+        with open(model_path.parent / f"{model_path.parent.name}.txt", "r") as f:
+            thresholds = [float(i) for i in f.readlines()]
+        # apply thresholds
+        preds_folds.append(
+            torch.stack(
+                [torch.where(probs_0D[:, i] > thresholds[i], 1, 0) for i in range(3)],
+                dim=1,
+            )
+            .detach()
+            .numpy()
+        )
+
+    # get final pred (majority vote)
+    preds = np.where(np.sum(preds_folds, axis=0) >= len(preds_folds) / 2, 1, 0)
+    return preds
+
+
 def run_xgb_models(model_paths, dataset):
     """
     Run the XGB models and return predictions
@@ -28,10 +67,11 @@ def run_xgb_models(model_paths, dataset):
     """
     idx, _, global_features, _ = map(list, zip(*dataset))
     preds_folds = []
-    # load the trained model if it is not loaded
     for model_path in model_paths:
+        # load the trained model
         with open(model_path, "rb") as f:
             model = pkl.load(f)
+        # predict
         probs = np.stack(
             [y[:, 1] for y in model.predict_proba(global_features)], axis=1
         )
@@ -51,11 +91,35 @@ def run_xgb_models(model_paths, dataset):
 
 def main(product_file, output_file, smiles_cols):
     # trained model paths
-    model_0D = (
+    model_0D = [
         TRAINED_MODEL_DIR
-        / "2024-01-04-085409_305115_fold0"
-        / "last-epoch72-val_loss0.19.ckpt"
-    )  # FFN
+        / f"2024-04-23-114842_552891_fold0"
+        / "last-epoch56-val_loss0.18.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold1"
+        / "last-epoch50-val_loss0.19.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold2"
+        / "last-epoch45-val_loss0.21.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold3"
+        / "last-epoch49-val_loss0.20.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold4"
+        / "last-epoch46-val_loss0.21.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold5"
+        / "last-epoch48-val_loss0.19.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold6"
+        / "last-epoch51-val_loss0.19.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold7"
+        / "last-epoch53-val_loss0.20.ckpt",
+        TRAINED_MODEL_DIR
+        / f"2024-04-23-114842_552891_fold8"
+        / "last-epoch53-val_loss0.20.ckpt",
+    ]
     model_1D_I = [
         TRAINED_MODEL_DIR / f"2024-04-21-005536_932721_fold{i}" / "model.pkl"
         for i in range(3)
@@ -86,7 +150,7 @@ def main(product_file, output_file, smiles_cols):
     ]  # XGB
 
     # path to the OneHotEncoder state for model_0D
-    ohe_state_dict = model_0D.parent / "OHE_state_dict_ohlvinnXkSzSXBJi.json"
+    ohe_state_dict = TRAINED_MODEL_DIR / "OHE_state_dict_rQsvApbyvgOdwgpW.json"
 
     # set file paths
     raw_dir = product_file.parent
@@ -152,9 +216,6 @@ def main(product_file, output_file, smiles_cols):
     # 0D model
     if len(models_to_apply.loc[models_to_apply["dim"] == "0D"]) > 0:
         # prepare
-        model = load_trained_model("FFN", model_0D)
-        model.eval()
-        trainer = pl.Trainer(accelerator="auto", logger=False, max_epochs=-1)
         dl = DataLoader(
             [
                 d
@@ -165,14 +226,7 @@ def main(product_file, output_file, smiles_cols):
             num_workers=0,
         )
         # predict
-        probs_0D = torch.sigmoid(torch.concat(trainer.predict(model, dl)))
-        # load decision thresholds
-        with open(model_0D.parent / f"{model_0D.parent.name}.txt", "r") as f:
-            thresholds = [float(i) for i in f.readlines()]
-        # apply thresholds
-        preds_0D = torch.stack(
-            [torch.where(probs_0D[:, i] > thresholds[i], 1, 0) for i in range(3)], dim=1
-        )
+        preds_0D = run_ffn_models(model_0D, dl)
 
     # 1D_I models
     if len(models_to_apply.loc[models_to_apply["dim"] == "1D_I"]) > 0:
@@ -241,9 +295,7 @@ def main(product_file, output_file, smiles_cols):
     results = models_to_apply.copy()
     results[["pred_A", "pred_B", "pred_C"]] = -1  # placeholder
     if preds_0D is not None:
-        results.loc[
-            results["dim"] == "0D", ["pred_A", "pred_B", "pred_C"]
-        ] = preds_0D.numpy()
+        results.loc[results["dim"] == "0D", ["pred_A", "pred_B", "pred_C"]] = preds_0D
     if preds_1D_I is not None:
         results.loc[
             results["dim"] == "1D_I", ["pred_A", "pred_B", "pred_C"]
