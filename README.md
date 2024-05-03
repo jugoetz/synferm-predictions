@@ -42,7 +42,7 @@ then supply your API key.
 The `run.py` script serves as an entrypoint for training models.
 It is configured with a set of command line arguments,
 including the path to a configuration file with model hyperparameters.
-See `config/config.yaml` for an example configuration file.
+See `config/config_example.yaml` for an example configuration file.
 
 To see the full list of command line arguments, run:
 ```bash
@@ -52,7 +52,7 @@ python run.py train --help
 ## Predicting using trained models
 The `inference.py` script serves as an entrypoint for predicting reaction outcome.
 It expects a CSV file with three columns: `initiator`, `monomer`, `terminator`.
-See `config/config.yaml` for an example configuration file.
+See `config/config_example.yaml` for an example configuration file.
 
 Call it like:
 ```bash
