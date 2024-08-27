@@ -620,10 +620,12 @@ class GraphLessSynFermDataset(DGLDataset):
         elif smiles.shape[1] == 1:
             raise NotImplementedError(
                 "Predicting from products directly is currently not implemented. Pass reactants instead."
+                "(did you accidentally pass the reactionSMILES column when you wanted to pass the three SMILES columns"
+                "under --smiles-columns?)"
             )
         else:
             raise ValueError(
-                "We expect one (product) or three (I, M, T) SMILES per record. Make sure smiles_columns fits that."
+                "We expect one (product) or three (I, M, T) SMILES per record. Make sure --smiles_columns fits that."
             )
 
         # apply global featurizers

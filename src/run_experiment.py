@@ -192,6 +192,7 @@ def run_prediction(args, hparams):
             smiles_columns=args.smiles_columns,
             label_columns=None,
             global_features=hparams["decoder"]["global_features"],
+            global_features_file=hparams["decoder"]["global_features_file"],
             task=hparams["training"]["task"],
         )
         collate = graphless_collate_fn

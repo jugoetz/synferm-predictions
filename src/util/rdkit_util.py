@@ -86,7 +86,6 @@ def standardize_building_block(
     For terminators, this will result in a neutral, desalted molecule.
 
     Molecules standardized with this function can be used as inputs to all featurizers in this project.
-    If a SMILES string is needed, e.g. for the OneHotEncoder, pass the returned molecule to Chem.MolToSmiles().
 
     Args:
         smiles (str): The SMILES string of the building block

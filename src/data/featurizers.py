@@ -30,6 +30,7 @@ from rdkit.Chem import Mol, MolFromSmiles
 from rdkit.Chem.rdMolDescriptors import GetMorganFingerprintAsBitVect
 from rdkit.DataStructs import ConvertToNumpyArray
 
+from src.util.rdkit_util import standardize_building_block
 
 """
 IMPORTANT: For all featurizers, the caller is responsible for ensuring that inputs are sanitized/canonicalized.
@@ -572,19 +573,37 @@ class FromFileFeaturizer:
         self.filename = filename
         self._features = None
 
+    def initialize_feature_dict(self):
+        with open(self.filename, "r") as f:
+            file_features = json.load(f)
+        # standardize to ensure we match inputs
+        self._features = {
+            standardize_building_block(k, return_smiles=True): v
+            for k, v in file_features.items()
+        }
+
     def process(self, *smiles):
         """
         Process one or more SMILES and return the features.
         """
         if self._features is None:
-            with open(self.filename, "r") as f:
-                self._features = json.load(f)
+            self.initialize_feature_dict()
 
-        return np.array([self._features[smi] for smi in smiles]).flatten()
+        # obtain the features
+        features = []
+        for smi in smiles:
+            try:
+                features += self._features[smi]
+            except KeyError:
+                raise RuntimeError(
+                    f"SMILES {smi} not found in feature file. Available features: {list(self._features.keys())}"
+                )
+
+        return np.array(features)
 
     @property
     def feat_size(self) -> int:
+        # n.b. this implicitly expects that all features in the dict have the same length
         if self._features is None:
-            with open(self.filename, "r") as f:
-                self._features = json.load(f)
+            self.initialize_feature_dict()
         return len(list(self._features.values())[0])
