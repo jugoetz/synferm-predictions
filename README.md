@@ -1,7 +1,11 @@
 # ML Training and Inference for Synthetic Fermentation
 
+[![DOI:10.1126/sciadv.adw6047](https://zenodo.org/badge/DOI/10.1126/sciadv.adw6047.svg)](https://doi.org/10.1126/sciadv.adw6047)
 <a href="https://github.com/jugoetz/synferm-predictions/blob/main/LICENSE"><img alt="License: MIT" src="https://black.readthedocs.io/en/stable/_static/license.svg"></a>
 <a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
+
+
+Paper: [Predicting three-component reaction outcomes from ~40,000 miniaturized reactant combinations](https://doi.org/10.1126/sciadv.adw6047)
 
 Preprint: [Predicting Three-Component Reaction Outcomes from 40k Miniaturized Reactant Combinations ](https://chemrxiv.org/engage/chemrxiv/article-details/663a0efa418a5379b0a94ebf)
 
