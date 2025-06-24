@@ -9,6 +9,7 @@ data/*
 !data/example_dataset.csv
 !data/example_sf.csv
 !data/OHE_state_dict_example.json
+!data/model_performance_2024-04-18_wandb-export.csv
 
 lightning_logs/
 outputs/
